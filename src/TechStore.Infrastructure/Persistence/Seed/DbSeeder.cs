@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TechStore.Domain.Common;
@@ -23,12 +24,58 @@ public static class DbSeeder
 
             await SeedRolesAsync(sp, cancellationToken);
             await SeedOrderStatusesAsync(context, cancellationToken);
+            await SeedAdminUserAsync(sp, cancellationToken);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "An error occurred while seeding the database.");
             throw;
         }
+    }
+
+    public static async Task SeedAdminUserAsync(IServiceProvider services, CancellationToken cancellationToken = default)
+    {
+        var configuration = services.GetRequiredService<IConfiguration>();
+        var section = configuration.GetSection("Seed:AdminUser");
+        var email = section["Email"];
+        var password = section["Password"];
+
+        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+        {
+            return;
+        }
+
+        var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
+        var existing = await userManager.FindByEmailAsync(email);
+        if (existing is not null)
+        {
+            if (!await userManager.IsInRoleAsync(existing, ApplicationRoles.Admin))
+            {
+                await userManager.AddToRoleAsync(existing, ApplicationRoles.Admin);
+            }
+
+            return;
+        }
+
+        var user = new ApplicationUser
+        {
+            UserName = email,
+            Email = email,
+            EmailConfirmed = true,
+            FirstName = section["FirstName"] ?? "System",
+            LastName = section["LastName"] ?? "Admin",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        var result = await userManager.CreateAsync(user, password);
+        if (!result.Succeeded)
+        {
+            var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+            throw new InvalidOperationException($"Failed to seed admin user: {errors}");
+        }
+
+        await userManager.AddToRoleAsync(user, ApplicationRoles.Admin);
     }
 
     public static async Task SeedRolesAsync(IServiceProvider services, CancellationToken cancellationToken = default)

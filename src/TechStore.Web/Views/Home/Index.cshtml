@@ -1,13 +1,26 @@
-﻿@{
+﻿@using TechStore.Domain.Common
+@{
     ViewData["Title"] = "Home";
 }
 
 <div class="text-center py-5">
     <h1 class="display-5">TechStore</h1>
     <p class="lead text-muted">
-        Backend foundation is ready: catalog, inventory, orders, Identity, and SQL Server persistence.
+        Product catalog backend: categories, brands, products with variants, and dynamic attributes.
     </p>
-    <p class="text-muted small mb-0">
-        Business modules will be added on top of this architecture in subsequent iterations.
-    </p>
+    @if (User.IsInRole(ApplicationRoles.Admin) || User.IsInRole(ApplicationRoles.Manager))
+    {
+        <div class="d-flex justify-content-center gap-2">
+            <a class="btn btn-primary" asp-controller="Products" asp-action="Index">Products</a>
+            <a class="btn btn-outline-secondary" asp-controller="Categories" asp-action="Index">Categories</a>
+            <a class="btn btn-outline-secondary" asp-controller="Brands" asp-action="Index">Brands</a>
+        </div>
+    }
+    else
+    {
+        <a class="btn btn-primary" asp-controller="Account" asp-action="Login">Sign in to manage catalog</a>
+        <p class="text-muted small mt-3 mb-0">
+            First login uses the seeded admin from <code>Seed:AdminUser</code> in appsettings (change the password after first use).
+        </p>
+    }
 </div>
