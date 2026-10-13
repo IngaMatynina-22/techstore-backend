@@ -7,6 +7,7 @@ using TechStore.Application.Features.Attributes;
 using TechStore.Application.Features.Brands;
 using TechStore.Application.Features.Categories;
 using TechStore.Application.Features.Inventory;
+using TechStore.Application.Features.Orders;
 using TechStore.Application.Features.Products;
 using TechStore.Infrastructure.Identity;
 using TechStore.Infrastructure.Persistence;
@@ -63,6 +64,7 @@ public static class DependencyInjection
         services.AddScoped<IAttributeDefinitionService, AttributeDefinitionService>();
         services.AddScoped<IWarehouseService, WarehouseService>();
         services.AddScoped<IInventoryService, InventoryService>();
+        services.AddScoped<IOrderService, OrderService>();
 
         return services;
     }
