@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -32,11 +32,11 @@ public class CatalogAuthorizationTests : IClassFixture<WebApplicationFactory<Pro
     }
 
     [Theory]
-    [InlineData("/Categories")]
-    [InlineData("/Brands")]
-    [InlineData("/Products")]
-    [InlineData("/Attributes")]
-    public async Task CatalogEndpoints_RedirectAnonymousToLogin(string url)
+    [InlineData("/api/categories")]
+    [InlineData("/api/brands")]
+    [InlineData("/api/products")]
+    [InlineData("/api/attributes?categoryId=1")]
+    public async Task CatalogEndpoints_Return401ForAnonymous(string url)
     {
         var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
         {
@@ -45,10 +45,6 @@ public class CatalogAuthorizationTests : IClassFixture<WebApplicationFactory<Pro
 
         var response = await client.GetAsync(url);
 
-        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-        Assert.Contains(
-            "/Account/Login",
-            response.Headers.Location?.OriginalString ?? string.Empty,
-            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 }

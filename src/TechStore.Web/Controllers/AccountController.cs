@@ -1,12 +1,14 @@
+using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using TechStore.Infrastructure.Identity;
-using TechStore.Web.ViewModels;
 
 namespace TechStore.Web.Controllers;
 
-public class AccountController : Controller
+[ApiController]
+[Route("api/[controller]")]
+public class AccountController : ControllerBase
 {
     private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly UserManager<ApplicationUser> _userManager;
@@ -19,63 +21,81 @@ public class AccountController : Controller
         _userManager = userManager;
     }
 
-    [HttpGet]
+    [HttpPost("login")]
     [AllowAnonymous]
-    public IActionResult Login(string? returnUrl = null)
-    {
-        return View(new LoginViewModel { ReturnUrl = returnUrl });
-    }
-
-    [HttpPost]
-    [AllowAnonymous]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Login(LoginViewModel model)
+    public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
         if (!ModelState.IsValid)
         {
-            return View(model);
+            return ValidationProblem(ModelState);
         }
 
-        var user = await _userManager.FindByEmailAsync(model.Email);
+        var user = await _userManager.FindByEmailAsync(request.Email);
         if (user is null || !user.IsActive)
         {
-            ModelState.AddModelError(string.Empty, "Invalid login attempt.");
-            return View(model);
+            return Unauthorized(new { message = "Invalid login attempt." });
         }
 
         var result = await _signInManager.PasswordSignInAsync(
             user.UserName!,
-            model.Password,
-            model.RememberMe,
+            request.Password,
+            request.RememberMe,
             lockoutOnFailure: true);
 
         if (!result.Succeeded)
         {
-            ModelState.AddModelError(string.Empty, "Invalid login attempt.");
-            return View(model);
+            return Unauthorized(new { message = "Invalid login attempt." });
         }
 
-        if (!string.IsNullOrWhiteSpace(model.ReturnUrl) && Url.IsLocalUrl(model.ReturnUrl))
+        var roles = await _userManager.GetRolesAsync(user);
+        return Ok(new
         {
-            return Redirect(model.ReturnUrl);
-        }
-
-        return RedirectToAction("Index", "Home");
+            user.Id,
+            user.Email,
+            user.FirstName,
+            user.LastName,
+            roles
+        });
     }
 
-    [HttpPost]
+    [HttpPost("logout")]
     [Authorize]
-    [ValidateAntiForgeryToken]
     public async Task<IActionResult> Logout()
     {
         await _signInManager.SignOutAsync();
-        return RedirectToAction("Index", "Home");
+        return NoContent();
     }
 
-    [HttpGet]
-    [AllowAnonymous]
-    public IActionResult AccessDenied()
+    [HttpGet("me")]
+    [Authorize]
+    public async Task<IActionResult> Me()
     {
-        return View();
+        var user = await _userManager.GetUserAsync(User);
+        if (user is null)
+        {
+            return Unauthorized();
+        }
+
+        var roles = await _userManager.GetRolesAsync(user);
+        return Ok(new
+        {
+            user.Id,
+            user.Email,
+            user.FirstName,
+            user.LastName,
+            roles
+        });
     }
+}
+
+public class LoginRequest
+{
+    [Required]
+    [EmailAddress]
+    public string Email { get; set; } = string.Empty;
+
+    [Required]
+    public string Password { get; set; } = string.Empty;
+
+    public bool RememberMe { get; set; }
 }
