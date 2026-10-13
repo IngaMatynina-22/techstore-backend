@@ -1,0 +1,12 @@
+@model TechStore.Application.Features.Categories.CategoryDetailsDto
+@{
+    ViewData["Title"] = "Deactivate category";
+}
+
+<h1 class="h3 mb-3">Deactivate category</h1>
+<p>Deactivate <strong>@Model.Name</strong>? Related products and child categories will keep their references; the category will no longer be treated as active.</p>
+<form asp-action="Deactivate" method="post">
+    <input type="hidden" name="id" value="@Model.Id" />
+    <button type="submit" class="btn btn-danger">Confirm deactivate</button>
+    <a class="btn btn-link" asp-action="Details" asp-route-id="@Model.Id">Cancel</a>
+</form>

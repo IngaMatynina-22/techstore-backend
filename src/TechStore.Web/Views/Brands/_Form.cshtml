@@ -1,0 +1,24 @@
+@model TechStore.Web.ViewModels.Catalog.BrandFormViewModel
+<div asp-validation-summary="ModelOnly" class="text-danger"></div>
+<div class="mb-3">
+    <label asp-for="Name" class="form-label"></label>
+    <input asp-for="Name" class="form-control" />
+    <span asp-validation-for="Name" class="text-danger"></span>
+</div>
+<div class="mb-3">
+    <label asp-for="Description" class="form-label"></label>
+    <textarea asp-for="Description" class="form-control" rows="3"></textarea>
+</div>
+<div class="mb-3">
+    <label asp-for="LogoUrl" class="form-label"></label>
+    <input asp-for="LogoUrl" class="form-control" />
+</div>
+<div class="mb-3">
+    <label asp-for="WebsiteUrl" class="form-label"></label>
+    <input asp-for="WebsiteUrl" class="form-control" />
+    <span asp-validation-for="WebsiteUrl" class="text-danger"></span>
+</div>
+<div class="form-check mb-3">
+    <input asp-for="IsActive" class="form-check-input" />
+    <label asp-for="IsActive" class="form-check-label"></label>
+</div>

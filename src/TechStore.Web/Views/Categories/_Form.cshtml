@@ -1,0 +1,36 @@
+@model TechStore.Web.ViewModels.Catalog.CategoryFormViewModel
+
+<div asp-validation-summary="ModelOnly" class="text-danger"></div>
+<div class="mb-3">
+    <label asp-for="Name" class="form-label"></label>
+    <input asp-for="Name" class="form-control" />
+    <span asp-validation-for="Name" class="text-danger"></span>
+</div>
+<div class="mb-3">
+    <label asp-for="Slug" class="form-label"></label>
+    <input asp-for="Slug" class="form-control" />
+    <div class="form-text">Leave empty to generate from name.</div>
+    <span asp-validation-for="Slug" class="text-danger"></span>
+</div>
+<div class="mb-3">
+    <label asp-for="ParentId" class="form-label"></label>
+    <select asp-for="ParentId" class="form-select" asp-items="ViewBag.ParentOptions">
+        <option value="">— none —</option>
+    </select>
+</div>
+<div class="mb-3">
+    <label asp-for="SortOrder" class="form-label"></label>
+    <input asp-for="SortOrder" class="form-control" />
+</div>
+<div class="mb-3">
+    <label asp-for="Description" class="form-label"></label>
+    <textarea asp-for="Description" class="form-control" rows="3"></textarea>
+</div>
+<div class="mb-3">
+    <label asp-for="ImageUrl" class="form-label"></label>
+    <input asp-for="ImageUrl" class="form-control" />
+</div>
+<div class="form-check mb-3">
+    <input asp-for="IsActive" class="form-check-input" />
+    <label asp-for="IsActive" class="form-check-label"></label>
+</div>

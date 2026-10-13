@@ -1,0 +1,48 @@
+@model IReadOnlyList<TechStore.Application.Features.Categories.CategoryListItemDto>
+@{
+    ViewData["Title"] = "Categories";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h3 mb-0">Categories</h1>
+    <a class="btn btn-primary" asp-action="Create">Create category</a>
+</div>
+
+<partial name="_Alerts" />
+
+<table class="table table-striped align-middle">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Slug</th>
+            <th>Parent</th>
+            <th>Sort</th>
+            <th>Children</th>
+            <th>Products</th>
+            <th>Status</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+    @foreach (var item in Model)
+    {
+        <tr class="@(item.IsActive ? "" : "table-secondary")">
+            <td>@item.Name</td>
+            <td><code>@item.Slug</code></td>
+            <td>@(item.ParentName ?? "—")</td>
+            <td>@item.SortOrder</td>
+            <td>@item.ChildrenCount</td>
+            <td>@item.ProductsCount</td>
+            <td>@(item.IsActive ? "Active" : "Inactive")</td>
+            <td class="text-end text-nowrap">
+                <a asp-action="Details" asp-route-id="@item.Id">Details</a> |
+                <a asp-action="Edit" asp-route-id="@item.Id">Edit</a>
+                @if (item.IsActive)
+                {
+                    <text> | </text><a asp-action="Deactivate" asp-route-id="@item.Id">Deactivate</a>
+                }
+            </td>
+        </tr>
+    }
+    </tbody>
+</table>

@@ -1,0 +1,22 @@
+@model TechStore.Application.Features.Brands.BrandDetailsDto
+@{
+    ViewData["Title"] = Model.Name;
+}
+<partial name="_Alerts" />
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h3 mb-0">@Model.Name</h1>
+    <div>
+        <a class="btn btn-outline-secondary" asp-action="Index">Back</a>
+        <a class="btn btn-primary" asp-action="Edit" asp-route-id="@Model.Id">Edit</a>
+        @if (Model.IsActive)
+        {
+            <a class="btn btn-outline-danger" asp-action="Deactivate" asp-route-id="@Model.Id">Deactivate</a>
+        }
+    </div>
+</div>
+<dl class="row">
+    <dt class="col-sm-3">Website</dt><dd class="col-sm-9">@(Model.WebsiteUrl ?? "—")</dd>
+    <dt class="col-sm-3">Products</dt><dd class="col-sm-9">@Model.ProductsCount</dd>
+    <dt class="col-sm-3">Status</dt><dd class="col-sm-9">@(Model.IsActive ? "Active" : "Inactive")</dd>
+    <dt class="col-sm-3">Description</dt><dd class="col-sm-9">@(Model.Description ?? "—")</dd>
+</dl>
