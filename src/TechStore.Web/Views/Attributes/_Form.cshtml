@@ -1,0 +1,45 @@
+@model TechStore.Web.ViewModels.Catalog.AttributeDefinitionFormViewModel
+@using TechStore.Domain.Enums
+<div asp-validation-summary="ModelOnly" class="text-danger"></div>
+<div class="mb-3">
+    <label asp-for="CategoryId" class="form-label"></label>
+    <select asp-for="CategoryId" class="form-select" asp-items="ViewBag.Categories"></select>
+    <span asp-validation-for="CategoryId" class="text-danger"></span>
+</div>
+<div class="row">
+    <div class="col-md-6 mb-3">
+        <label asp-for="Name" class="form-label"></label>
+        <input asp-for="Name" class="form-control" />
+        <span asp-validation-for="Name" class="text-danger"></span>
+    </div>
+    <div class="col-md-6 mb-3">
+        <label asp-for="Code" class="form-label"></label>
+        <input asp-for="Code" class="form-control" />
+    </div>
+</div>
+<div class="row">
+    <div class="col-md-4 mb-3">
+        <label asp-for="DataType" class="form-label"></label>
+        <select asp-for="DataType" class="form-select" asp-items="Html.GetEnumSelectList<AttributeDataType>()"></select>
+    </div>
+    <div class="col-md-4 mb-3">
+        <label asp-for="Unit" class="form-label"></label>
+        <input asp-for="Unit" class="form-control" />
+    </div>
+    <div class="col-md-4 mb-3">
+        <label asp-for="SortOrder" class="form-label"></label>
+        <input asp-for="SortOrder" class="form-control" />
+    </div>
+</div>
+<div class="form-check mb-2">
+    <input asp-for="IsRequired" class="form-check-input" />
+    <label asp-for="IsRequired" class="form-check-label"></label>
+</div>
+<div class="form-check mb-3">
+    <input asp-for="IsFilterable" class="form-check-input" />
+    <label asp-for="IsFilterable" class="form-check-label"></label>
+</div>
+<div class="mb-3">
+    <label asp-for="OptionsText" class="form-label"></label>
+    <textarea asp-for="OptionsText" class="form-control" rows="4"></textarea>
+</div>
