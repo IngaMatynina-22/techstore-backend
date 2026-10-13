@@ -17,8 +17,11 @@ public class InventoryItemConfiguration : IEntityTypeConfiguration<InventoryItem
         builder.HasKey(x => x.Id);
 
         builder.Property(x => x.UpdatedAt).HasColumnType("datetime2");
+        builder.Property(x => x.RowVersion).IsRowVersion();
+        builder.Ignore(x => x.AvailableQuantity);
 
         builder.HasIndex(x => new { x.WarehouseId, x.VariantId }).IsUnique();
+        builder.HasIndex(x => x.QuantityOnHand);
 
         builder.HasOne(x => x.Warehouse)
             .WithMany(x => x.InventoryItems)

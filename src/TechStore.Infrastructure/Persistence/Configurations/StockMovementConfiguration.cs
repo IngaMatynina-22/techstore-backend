@@ -21,6 +21,9 @@ public class StockMovementConfiguration : IEntityTypeConfiguration<StockMovement
         builder.HasIndex(x => x.WarehouseId);
         builder.HasIndex(x => x.VariantId);
         builder.HasIndex(x => x.CreatedAt);
+        builder.HasIndex(x => x.TransferGroupId);
+        builder.HasIndex(x => x.MovementType);
+        builder.HasIndex(x => x.UserId);
         builder.HasIndex(x => new { x.ReferenceType, x.ReferenceId });
 
         builder.HasOne(x => x.Warehouse)

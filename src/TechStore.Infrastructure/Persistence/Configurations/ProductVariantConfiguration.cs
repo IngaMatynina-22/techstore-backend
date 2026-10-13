@@ -14,6 +14,7 @@ public class ProductVariantConfiguration : IEntityTypeConfiguration<ProductVaria
             t.HasCheckConstraint("CK_ProductVariants_SellingPrice", "[SellingPrice] >= 0");
             t.HasCheckConstraint("CK_ProductVariants_OldPrice", "[OldPrice] IS NULL OR [OldPrice] >= 0");
             t.HasCheckConstraint("CK_ProductVariants_Weight", "[Weight] IS NULL OR [Weight] >= 0");
+            t.HasCheckConstraint("CK_ProductVariants_LowStockThreshold", "[LowStockThreshold] IS NULL OR [LowStockThreshold] >= 0");
         });
 
         builder.HasKey(x => x.Id);
@@ -33,5 +34,6 @@ public class ProductVariantConfiguration : IEntityTypeConfiguration<ProductVaria
             .IsUnique()
             .HasFilter("[Barcode] IS NOT NULL");
         builder.HasIndex(x => x.ProductId);
+        builder.HasIndex(x => x.LowStockThreshold);
     }
 }

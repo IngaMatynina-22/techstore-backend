@@ -12,6 +12,12 @@ public class ProductVariant : AuditableEntity
     public decimal SellingPrice { get; set; }
     public decimal? OldPrice { get; set; }
     public decimal? Weight { get; set; }
+
+    /// <summary>
+    /// Optional global low-stock threshold for this variant. Null means threshold not configured.
+    /// </summary>
+    public int? LowStockThreshold { get; set; }
+
     public bool IsActive { get; set; } = true;
 
     public Product Product { get; set; } = null!;

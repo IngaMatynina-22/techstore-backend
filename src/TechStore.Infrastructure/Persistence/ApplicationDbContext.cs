@@ -31,6 +31,7 @@ public class ApplicationDbContext
     public DbSet<Warehouse> Warehouses => Set<Warehouse>();
     public DbSet<InventoryItem> Inventory => Set<InventoryItem>();
     public DbSet<StockMovement> StockMovements => Set<StockMovement>();
+    public DbSet<StockOperationIdempotency> StockOperationIdempotencies => Set<StockOperationIdempotency>();
     public DbSet<OrderStatus> OrderStatuses => Set<OrderStatus>();
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();

@@ -13,6 +13,13 @@ public class InventoryItem : BaseEntity
     public int QuantityReserved { get; set; }
     public DateTime UpdatedAt { get; set; }
 
+    /// <summary>
+    /// SQL Server rowversion for optimistic concurrency.
+    /// </summary>
+    public byte[] RowVersion { get; set; } = Array.Empty<byte>();
+
+    public int AvailableQuantity => QuantityOnHand - QuantityReserved;
+
     public Warehouse Warehouse { get; set; } = null!;
     public ProductVariant Variant { get; set; } = null!;
 }

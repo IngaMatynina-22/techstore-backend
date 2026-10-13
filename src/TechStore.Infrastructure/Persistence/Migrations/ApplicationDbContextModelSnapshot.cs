@@ -630,6 +630,12 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                     b.Property<int>("QuantityReserved")
                         .HasColumnType("int");
 
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
 
@@ -640,6 +646,8 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("QuantityOnHand");
 
                     b.HasIndex("VariantId");
 
@@ -1130,6 +1138,9 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
+                    b.Property<int?>("LowStockThreshold")
+                        .HasColumnType("int");
+
                     b.Property<decimal?>("OldPrice")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
@@ -1168,6 +1179,8 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("[Barcode] IS NOT NULL");
 
+                    b.HasIndex("LowStockThreshold");
+
                     b.HasIndex("ProductId");
 
                     b.HasIndex("Sku")
@@ -1175,6 +1188,8 @@ namespace TechStore.Infrastructure.Persistence.Migrations
 
                     b.ToTable("ProductVariants", null, t =>
                         {
+                            t.HasCheckConstraint("CK_ProductVariants_LowStockThreshold", "[LowStockThreshold] IS NULL OR [LowStockThreshold] >= 0");
+
                             t.HasCheckConstraint("CK_ProductVariants_OldPrice", "[OldPrice] IS NULL OR [OldPrice] >= 0");
 
                             t.HasCheckConstraint("CK_ProductVariants_PurchasePrice", "[PurchasePrice] >= 0");
@@ -1278,12 +1293,21 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                     b.Property<int>("Quantity")
                         .HasColumnType("int");
 
+                    b.Property<int>("QuantityAfter")
+                        .HasColumnType("int");
+
+                    b.Property<int>("QuantityBefore")
+                        .HasColumnType("int");
+
                     b.Property<int?>("ReferenceId")
                         .HasColumnType("int");
 
                     b.Property<string>("ReferenceType")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("TransferGroupId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal?>("UnitCost")
                         .HasPrecision(18, 2)
@@ -1302,6 +1326,10 @@ namespace TechStore.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CreatedAt");
 
+                    b.HasIndex("MovementType");
+
+                    b.HasIndex("TransferGroupId");
+
                     b.HasIndex("UserId");
 
                     b.HasIndex("VariantId");
@@ -1311,6 +1339,49 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                     b.HasIndex("ReferenceType", "ReferenceId");
 
                     b.ToTable("StockMovements", (string)null);
+                });
+
+            modelBuilder.Entity("TechStore.Domain.Entities.StockOperationIdempotency", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("OperationType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("ResponseJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("StockOperationIdempotency", (string)null);
                 });
 
             modelBuilder.Entity("TechStore.Domain.Entities.Supplier", b =>
@@ -1954,6 +2025,14 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                     b.Navigation("Variant");
 
                     b.Navigation("Warehouse");
+                });
+
+            modelBuilder.Entity("TechStore.Domain.Entities.StockOperationIdempotency", b =>
+                {
+                    b.HasOne("TechStore.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("TechStore.Domain.Entities.SupplierProduct", b =>
