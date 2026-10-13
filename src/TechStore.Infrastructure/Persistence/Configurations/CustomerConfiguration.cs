@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using TechStore.Domain.Entities;
+using TechStore.Infrastructure.Identity;
 
 namespace TechStore.Infrastructure.Persistence.Configurations;
 
@@ -21,6 +22,12 @@ public class CustomerConfiguration : IEntityTypeConfiguration<Customer>
 
         builder.HasIndex(x => x.Email);
         builder.HasIndex(x => x.Phone);
+        builder.HasIndex(x => x.UserId).IsUnique().HasFilter("[UserId] IS NOT NULL");
+
+        builder.HasOne<ApplicationUser>()
+            .WithMany()
+            .HasForeignKey(x => x.UserId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         builder.HasMany(x => x.Addresses)
             .WithOne(x => x.Customer)

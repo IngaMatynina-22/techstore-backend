@@ -40,12 +40,23 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.HasIndex(x => x.CustomerId);
         builder.HasIndex(x => x.StatusId);
         builder.HasIndex(x => x.ManagerId);
+        builder.HasIndex(x => x.WarehouseId);
         builder.HasIndex(x => x.CreatedAt);
 
         builder.HasOne(x => x.Status)
             .WithMany(x => x.Orders)
             .HasForeignKey(x => x.StatusId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(x => x.Warehouse)
+            .WithMany()
+            .HasForeignKey(x => x.WarehouseId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(x => x.ShippingAddress)
+            .WithMany()
+            .HasForeignKey(x => x.ShippingAddressId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         builder.HasOne<ApplicationUser>()
             .WithMany()

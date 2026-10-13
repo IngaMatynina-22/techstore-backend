@@ -4,6 +4,11 @@ namespace TechStore.Domain.Entities;
 
 public class Customer : AuditableEntity
 {
+    /// <summary>
+    /// Optional link to ASP.NET Identity user (Customer role). Unique when set.
+    /// </summary>
+    public int? UserId { get; set; }
+
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;

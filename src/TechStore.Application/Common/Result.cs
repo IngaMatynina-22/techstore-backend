@@ -9,6 +9,8 @@ public static class ResultCodes
     public const string ConcurrencyConflict = "concurrency_conflict";
     public const string IdempotencyConflict = "idempotency_conflict";
     public const string NoChange = "no_change";
+    public const string InvalidTransition = "invalid_transition";
+    public const string Forbidden = "forbidden";
 }
 
 public class Result

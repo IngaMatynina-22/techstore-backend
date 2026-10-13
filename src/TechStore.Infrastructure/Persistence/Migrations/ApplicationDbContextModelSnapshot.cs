@@ -427,11 +427,18 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<int?>("UserId")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Email");
 
                     b.HasIndex("Phone");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasFilter("[UserId] IS NOT NULL");
 
                     b.ToTable("Customers", (string)null);
                 });
@@ -719,6 +726,9 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<bool>("HasActiveReservation")
+                        .HasColumnType("bit");
+
                     b.Property<int?>("ManagerId")
                         .HasColumnType("int");
 
@@ -726,6 +736,9 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
+
+                    b.Property<int?>("ShippingAddressId")
+                        .HasColumnType("int");
 
                     b.Property<int>("StatusId")
                         .HasColumnType("int");
@@ -741,6 +754,9 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<int>("WarehouseId")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedAt");
@@ -752,7 +768,11 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                     b.HasIndex("OrderNumber")
                         .IsUnique();
 
+                    b.HasIndex("ShippingAddressId");
+
                     b.HasIndex("StatusId");
+
+                    b.HasIndex("WarehouseId");
 
                     b.ToTable("Orders", null, t =>
                         {
@@ -872,6 +892,53 @@ namespace TechStore.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_OrderItems_UnitPrice", "[UnitPrice] >= 0");
                         });
+                });
+
+            modelBuilder.Entity("TechStore.Domain.Entities.OrderOperationIdempotency", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("OperationType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<int>("OrderId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("ResponseJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId");
+
+                    b.HasIndex("UserId", "IdempotencyKey")
+                        .IsUnique()
+                        .HasFilter("[UserId] IS NOT NULL");
+
+                    b.ToTable("OrderOperationIdempotency", (string)null);
                 });
 
             modelBuilder.Entity("TechStore.Domain.Entities.OrderStatus", b =>
@@ -1778,6 +1845,14 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                     b.Navigation("Parent");
                 });
 
+            modelBuilder.Entity("TechStore.Domain.Entities.Customer", b =>
+                {
+                    b.HasOne("TechStore.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
             modelBuilder.Entity("TechStore.Domain.Entities.CustomerAddress", b =>
                 {
                     b.HasOne("TechStore.Domain.Entities.Customer", "Customer")
@@ -1848,15 +1923,30 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                         .HasForeignKey("ManagerId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("TechStore.Domain.Entities.CustomerAddress", "ShippingAddress")
+                        .WithMany()
+                        .HasForeignKey("ShippingAddressId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("TechStore.Domain.Entities.OrderStatus", "Status")
                         .WithMany("Orders")
                         .HasForeignKey("StatusId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("TechStore.Domain.Entities.Warehouse", "Warehouse")
+                        .WithMany()
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.Navigation("Customer");
 
+                    b.Navigation("ShippingAddress");
+
                     b.Navigation("Status");
+
+                    b.Navigation("Warehouse");
                 });
 
             modelBuilder.Entity("TechStore.Domain.Entities.OrderDocument", b =>
@@ -1891,6 +1981,20 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                     b.Navigation("Order");
 
                     b.Navigation("Variant");
+                });
+
+            modelBuilder.Entity("TechStore.Domain.Entities.OrderOperationIdempotency", b =>
+                {
+                    b.HasOne("TechStore.Domain.Entities.Order", null)
+                        .WithMany()
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("TechStore.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("TechStore.Domain.Entities.OrderStatusHistory", b =>
