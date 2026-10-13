@@ -41,8 +41,9 @@ public abstract class ApiControllerBase : ControllerBase
         var status = code switch
         {
             ResultCodes.NotFound => StatusCodes.Status404NotFound,
+            ResultCodes.Forbidden => StatusCodes.Status403Forbidden,
             ResultCodes.Conflict or ResultCodes.InsufficientStock or ResultCodes.ConcurrencyConflict
-                or ResultCodes.IdempotencyConflict => StatusCodes.Status409Conflict,
+                or ResultCodes.IdempotencyConflict or ResultCodes.InvalidTransition => StatusCodes.Status409Conflict,
             ResultCodes.NoChange => StatusCodes.Status200OK,
             _ => StatusCodes.Status400BadRequest
         };
