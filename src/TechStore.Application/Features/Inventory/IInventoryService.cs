@@ -18,6 +18,15 @@ public interface IInventoryService
     Task<Result<StockOperationResultDto>> AdjustAsync(AdjustmentRequest request, int? userId, CancellationToken cancellationToken = default);
     Task<Result<TransferOperationResultDto>> TransferAsync(TransferRequest request, int? userId, CancellationToken cancellationToken = default);
 
+    /// <summary>Mutates reserved stock; caller owns the transaction.</summary>
+    Task<Result> ReserveStockAsync(int warehouseId, int variantId, int quantity, int orderId, int? userId, CancellationToken cancellationToken = default);
+
+    /// <summary>Releases reserved stock; caller owns the transaction.</summary>
+    Task<Result> ReleaseReservationAsync(int warehouseId, int variantId, int quantity, int orderId, int? userId, CancellationToken cancellationToken = default);
+
+    /// <summary>Decrements on-hand and reserved together; caller owns the transaction.</summary>
+    Task<Result> FulfillReservedStockAsync(int warehouseId, int variantId, int quantity, int orderId, int? userId, CancellationToken cancellationToken = default);
+
     Task<WarehouseSummaryDto?> GetWarehouseSummaryAsync(int warehouseId, CancellationToken cancellationToken = default);
     Task<StockMovementsPeriodReportDto> GetMovementsPeriodReportAsync(int? warehouseId, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default);
     Task<InventoryValuationDto?> GetInventoryValuationAsync(int warehouseId, CancellationToken cancellationToken = default);

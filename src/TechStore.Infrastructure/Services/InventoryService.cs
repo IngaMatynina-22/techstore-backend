@@ -218,7 +218,6 @@ public class InventoryService : IInventoryService
 
                 var now = DateTime.UtcNow;
                 var item = await GetOrCreateInventoryAsync(request.WarehouseId, request.VariantId, now, cancellationToken);
-                var before = item.QuantityOnHand;
 
                 var affected = await ApplyQuantityDeltaAsync(item.Id, request.Quantity, requireAvailable: false, now, cancellationToken);
                 if (affected == 0)
@@ -228,7 +227,8 @@ public class InventoryService : IInventoryService
                         ResultCodes.ConcurrencyConflict);
                 }
 
-                var after = before + request.Quantity;
+                var after = await ReadOnHandAsync(item.Id, cancellationToken);
+                var before = after - request.Quantity;
                 var movement = new StockMovement
                 {
                     WarehouseId = request.WarehouseId,
@@ -296,7 +296,6 @@ public class InventoryService : IInventoryService
                         ResultCodes.InsufficientStock);
                 }
 
-                var before = item.QuantityOnHand;
                 var qty = request.Quantity;
 
                 var affected = await ApplyQuantityDeltaAsync(item.Id, -qty, requireAvailable: true, now, cancellationToken);
@@ -307,7 +306,8 @@ public class InventoryService : IInventoryService
                         ResultCodes.InsufficientStock);
                 }
 
-                var after = before - qty;
+                var after = await ReadOnHandAsync(item.Id, cancellationToken);
+                var before = after + qty;
                 var movement = new StockMovement
                 {
                     WarehouseId = request.WarehouseId,
@@ -846,80 +846,86 @@ public class InventoryService : IInventoryService
             hash = ComputeHash(request);
         }
 
-        await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
-
-        if (key is not null)
+        // Required when EnableRetryOnFailure is enabled: user transactions must run inside the strategy.
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
         {
-            var existing = await _db.StockOperationIdempotencies
-                .FirstOrDefaultAsync(x => x.IdempotencyKey == key, cancellationToken);
-            if (existing is not null)
+            _db.ChangeTracker.Clear();
+            await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
+
+            if (key is not null)
             {
-                await tx.RollbackAsync(cancellationToken);
-                if (!string.Equals(existing.RequestHash, hash, StringComparison.Ordinal) ||
-                    !string.Equals(existing.OperationType, operationType, StringComparison.Ordinal))
+                var existing = await _db.StockOperationIdempotencies
+                    .FirstOrDefaultAsync(x => x.IdempotencyKey == key, cancellationToken);
+                if (existing is not null)
                 {
-                    return Result.Conflict<T>(
-                        "Idempotency key was already used with a different request payload.",
-                        ResultCodes.IdempotencyConflict);
-                }
+                    await tx.RollbackAsync(cancellationToken);
+                    if (!string.Equals(existing.RequestHash, hash, StringComparison.Ordinal) ||
+                        !string.Equals(existing.OperationType, operationType, StringComparison.Ordinal))
+                    {
+                        return Result.Conflict<T>(
+                            "Idempotency key was already used with a different request payload.",
+                            ResultCodes.IdempotencyConflict);
+                    }
 
-                var replayed = JsonSerializer.Deserialize<T>(existing.ResponseJson, JsonOptions);
-                return replayed is null
-                    ? Result.Conflict<T>("Stored idempotent response could not be restored.", ResultCodes.IdempotencyConflict)
-                    : Result.Success(MarkReplay(replayed));
-            }
-        }
-
-        try
-        {
-            var result = await action();
-            if (result.IsFailure || result.Value is null)
-            {
-                await tx.RollbackAsync(cancellationToken);
-                return result;
-            }
-
-            var payload = MarkReplay(result.Value, replay: false);
-            if (key is not null && hash is not null)
-            {
-                _db.StockOperationIdempotencies.Add(new StockOperationIdempotency
-                {
-                    IdempotencyKey = key,
-                    UserId = userId,
-                    OperationType = operationType,
-                    RequestHash = hash,
-                    ResponseJson = JsonSerializer.Serialize(payload, JsonOptions),
-                    CreatedAt = DateTime.UtcNow
-                });
-                await _db.SaveChangesAsync(cancellationToken);
-            }
-
-            await tx.CommitAsync(cancellationToken);
-            return Result.Success(payload);
-        }
-        catch (DbUpdateException) when (key is not null)
-        {
-            await tx.RollbackAsync(cancellationToken);
-            var raced = await _db.StockOperationIdempotencies.AsNoTracking()
-                .FirstOrDefaultAsync(x => x.IdempotencyKey == key, cancellationToken);
-            if (raced is not null &&
-                string.Equals(raced.RequestHash, hash, StringComparison.Ordinal) &&
-                string.Equals(raced.OperationType, operationType, StringComparison.Ordinal))
-            {
-                var replayed = JsonSerializer.Deserialize<T>(raced.ResponseJson, JsonOptions);
-                if (replayed is not null)
-                {
-                    return Result.Success(MarkReplay(replayed));
+                    var replayed = JsonSerializer.Deserialize<T>(existing.ResponseJson, JsonOptions);
+                    return replayed is null
+                        ? Result.Conflict<T>("Stored idempotent response could not be restored.", ResultCodes.IdempotencyConflict)
+                        : Result.Success(MarkReplay(replayed));
                 }
             }
 
-            return Result.Conflict<T>("Idempotency key conflict.", ResultCodes.IdempotencyConflict);
-        }
-        catch
-        {
-            await tx.RollbackAsync(cancellationToken);
-            throw;
-        }
+            try
+            {
+                var result = await action();
+                if (result.IsFailure || result.Value is null)
+                {
+                    await tx.RollbackAsync(cancellationToken);
+                    return result;
+                }
+
+                var payload = MarkReplay(result.Value, replay: false);
+                if (key is not null && hash is not null)
+                {
+                    _db.StockOperationIdempotencies.Add(new StockOperationIdempotency
+                    {
+                        IdempotencyKey = key,
+                        UserId = userId,
+                        OperationType = operationType,
+                        RequestHash = hash,
+                        ResponseJson = JsonSerializer.Serialize(payload, JsonOptions),
+                        CreatedAt = DateTime.UtcNow
+                    });
+                    await _db.SaveChangesAsync(cancellationToken);
+                }
+
+                await tx.CommitAsync(cancellationToken);
+                return Result.Success(payload);
+            }
+            catch (DbUpdateException) when (key is not null)
+            {
+                await tx.RollbackAsync(cancellationToken);
+                var raced = await _db.StockOperationIdempotencies.AsNoTracking()
+                    .FirstOrDefaultAsync(x => x.IdempotencyKey == key, cancellationToken);
+                if (raced is not null &&
+                    string.Equals(raced.RequestHash, hash, StringComparison.Ordinal) &&
+                    string.Equals(raced.OperationType, operationType, StringComparison.Ordinal))
+                {
+                    var replayed = JsonSerializer.Deserialize<T>(raced.ResponseJson, JsonOptions);
+                    if (replayed is not null)
+                    {
+                        return Result.Success(MarkReplay(replayed));
+                    }
+                }
+
+                return Result.Conflict<T>("Idempotency key conflict.", ResultCodes.IdempotencyConflict);
+            }
+            catch
+            {
+                await tx.RollbackAsync(cancellationToken);
+                throw;
+            }
+        });
     }
 
     private async Task<int> ApplyQuantityDeltaAsync(
@@ -980,7 +986,9 @@ public class InventoryService : IInventoryService
         if (!_db.Database.IsRelational())
         {
             var item = await _db.Inventory.FirstOrDefaultAsync(
-                i => i.Id == inventoryId && i.QuantityOnHand == expectedCurrent,
+                i => i.Id == inventoryId &&
+                     i.QuantityOnHand == expectedCurrent &&
+                     i.QuantityReserved <= target,
                 cancellationToken);
             if (item is null)
             {
@@ -994,10 +1002,269 @@ public class InventoryService : IInventoryService
         }
 
         return await _db.Inventory
-            .Where(i => i.Id == inventoryId && i.QuantityOnHand == expectedCurrent)
+            .Where(i =>
+                i.Id == inventoryId &&
+                i.QuantityOnHand == expectedCurrent &&
+                i.QuantityReserved <= target)
             .ExecuteUpdateAsync(
                 s => s
                     .SetProperty(i => i.QuantityOnHand, target)
+                    .SetProperty(i => i.UpdatedAt, now),
+                cancellationToken);
+    }
+
+    private async Task<int> ReadOnHandAsync(int inventoryId, CancellationToken cancellationToken)
+    {
+        return await _db.Inventory.AsNoTracking()
+            .Where(i => i.Id == inventoryId)
+            .Select(i => i.QuantityOnHand)
+            .SingleAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Increases reserved quantity when available stock is sufficient. Does not open a transaction —
+    /// callers must provide the ambient transaction boundary.
+    /// </summary>
+    public async Task<Result> ReserveStockAsync(
+        int warehouseId,
+        int variantId,
+        int quantity,
+        int orderId,
+        int? userId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!InventoryRules.IsPositiveQuantity(quantity))
+        {
+            return Result.Failure("Reserve quantity must be greater than zero.");
+        }
+
+        var validation = await ValidateWarehouseAndVariantAsync(
+            warehouseId, variantId, requireActiveWarehouse: true, requireActiveVariant: true, cancellationToken);
+        if (validation.IsFailure)
+        {
+            return validation;
+        }
+
+        var now = DateTime.UtcNow;
+        var item = await GetOrCreateInventoryAsync(warehouseId, variantId, now, cancellationToken);
+        var onHandBefore = item.QuantityOnHand;
+
+        var affected = await ApplyReservedDeltaAsync(item.Id, quantity, requireAvailable: true, now, cancellationToken);
+        if (affected == 0)
+        {
+            return Result.Conflict("Insufficient available stock to reserve.", ResultCodes.InsufficientStock);
+        }
+
+        _db.StockMovements.Add(new StockMovement
+        {
+            WarehouseId = warehouseId,
+            VariantId = variantId,
+            UserId = userId,
+            MovementType = StockMovementType.Reservation,
+            Quantity = quantity,
+            QuantityBefore = onHandBefore,
+            QuantityAfter = onHandBefore,
+            ReferenceType = "Order",
+            ReferenceId = orderId,
+            Comment = $"Reserve for order #{orderId}",
+            CreatedAt = now
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Decreases reserved quantity. Does not open a transaction.
+    /// </summary>
+    public async Task<Result> ReleaseReservationAsync(
+        int warehouseId,
+        int variantId,
+        int quantity,
+        int orderId,
+        int? userId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!InventoryRules.IsPositiveQuantity(quantity))
+        {
+            return Result.Failure("Release quantity must be greater than zero.");
+        }
+
+        var item = await _db.Inventory.FirstOrDefaultAsync(
+            i => i.WarehouseId == warehouseId && i.VariantId == variantId, cancellationToken);
+        if (item is null)
+        {
+            return Result.Conflict("No inventory row to release reservation from.", ResultCodes.ConcurrencyConflict);
+        }
+
+        var now = DateTime.UtcNow;
+        var onHand = item.QuantityOnHand;
+        var affected = await ApplyReservedDeltaAsync(item.Id, -quantity, requireAvailable: false, now, cancellationToken);
+        if (affected == 0)
+        {
+            return Result.Conflict("Reservation release conflict.", ResultCodes.ConcurrencyConflict);
+        }
+
+        _db.StockMovements.Add(new StockMovement
+        {
+            WarehouseId = warehouseId,
+            VariantId = variantId,
+            UserId = userId,
+            MovementType = StockMovementType.ReleaseReservation,
+            Quantity = -quantity,
+            QuantityBefore = onHand,
+            QuantityAfter = onHand,
+            ReferenceType = "Order",
+            ReferenceId = orderId,
+            Comment = $"Release reservation for order #{orderId}",
+            CreatedAt = now
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Decreases on-hand and reserved together (order fulfillment). Does not open a transaction.
+    /// </summary>
+    public async Task<Result> FulfillReservedStockAsync(
+        int warehouseId,
+        int variantId,
+        int quantity,
+        int orderId,
+        int? userId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!InventoryRules.IsPositiveQuantity(quantity))
+        {
+            return Result.Failure("Fulfill quantity must be greater than zero.");
+        }
+
+        var item = await _db.Inventory.FirstOrDefaultAsync(
+            i => i.WarehouseId == warehouseId && i.VariantId == variantId, cancellationToken);
+        if (item is null)
+        {
+            return Result.Conflict("No inventory row to fulfill.", ResultCodes.InsufficientStock);
+        }
+
+        var now = DateTime.UtcNow;
+        var before = item.QuantityOnHand;
+        var affected = await ApplyFulfillAsync(item.Id, quantity, now, cancellationToken);
+        if (affected == 0)
+        {
+            return Result.Conflict("Cannot fulfill reserved stock.", ResultCodes.InsufficientStock);
+        }
+
+        var after = await ReadOnHandAsync(item.Id, cancellationToken);
+        _db.StockMovements.Add(new StockMovement
+        {
+            WarehouseId = warehouseId,
+            VariantId = variantId,
+            UserId = userId,
+            MovementType = StockMovementType.Sale,
+            Quantity = -quantity,
+            QuantityBefore = before,
+            QuantityAfter = after,
+            ReferenceType = "Order",
+            ReferenceId = orderId,
+            Comment = $"Fulfill order #{orderId}",
+            CreatedAt = now
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        return Result.Success();
+    }
+
+    private async Task<int> ApplyReservedDeltaAsync(
+        int inventoryId,
+        int reservedDelta,
+        bool requireAvailable,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        if (!_db.Database.IsRelational())
+        {
+            var item = await _db.Inventory.FirstOrDefaultAsync(i => i.Id == inventoryId, cancellationToken);
+            if (item is null)
+            {
+                return 0;
+            }
+
+            if (requireAvailable && reservedDelta > 0 && item.AvailableQuantity < reservedDelta)
+            {
+                return 0;
+            }
+
+            if (reservedDelta < 0 && item.QuantityReserved < -reservedDelta)
+            {
+                return 0;
+            }
+
+            item.QuantityReserved += reservedDelta;
+            item.UpdatedAt = now;
+            await _db.SaveChangesAsync(cancellationToken);
+            return 1;
+        }
+
+        if (requireAvailable && reservedDelta > 0)
+        {
+            return await _db.Inventory
+                .Where(i => i.Id == inventoryId && i.QuantityOnHand - i.QuantityReserved >= reservedDelta)
+                .ExecuteUpdateAsync(
+                    s => s
+                        .SetProperty(i => i.QuantityReserved, i => i.QuantityReserved + reservedDelta)
+                        .SetProperty(i => i.UpdatedAt, now),
+                    cancellationToken);
+        }
+
+        if (reservedDelta < 0)
+        {
+            var need = -reservedDelta;
+            return await _db.Inventory
+                .Where(i => i.Id == inventoryId && i.QuantityReserved >= need)
+                .ExecuteUpdateAsync(
+                    s => s
+                        .SetProperty(i => i.QuantityReserved, i => i.QuantityReserved + reservedDelta)
+                        .SetProperty(i => i.UpdatedAt, now),
+                    cancellationToken);
+        }
+
+        return await _db.Inventory
+            .Where(i => i.Id == inventoryId)
+            .ExecuteUpdateAsync(
+                s => s
+                    .SetProperty(i => i.QuantityReserved, i => i.QuantityReserved + reservedDelta)
+                    .SetProperty(i => i.UpdatedAt, now),
+                cancellationToken);
+    }
+
+    private async Task<int> ApplyFulfillAsync(
+        int inventoryId,
+        int quantity,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        if (!_db.Database.IsRelational())
+        {
+            var item = await _db.Inventory.FirstOrDefaultAsync(i => i.Id == inventoryId, cancellationToken);
+            if (item is null || item.QuantityOnHand < quantity || item.QuantityReserved < quantity)
+            {
+                return 0;
+            }
+
+            item.QuantityOnHand -= quantity;
+            item.QuantityReserved -= quantity;
+            item.UpdatedAt = now;
+            await _db.SaveChangesAsync(cancellationToken);
+            return 1;
+        }
+
+        return await _db.Inventory
+            .Where(i =>
+                i.Id == inventoryId &&
+                i.QuantityOnHand >= quantity &&
+                i.QuantityReserved >= quantity)
+            .ExecuteUpdateAsync(
+                s => s
+                    .SetProperty(i => i.QuantityOnHand, i => i.QuantityOnHand - quantity)
+                    .SetProperty(i => i.QuantityReserved, i => i.QuantityReserved - quantity)
                     .SetProperty(i => i.UpdatedAt, now),
                 cancellationToken);
     }

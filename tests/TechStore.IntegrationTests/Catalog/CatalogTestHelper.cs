@@ -23,7 +23,7 @@ internal static class CatalogTestHelper
             $"Server=(localdb)\\mssqllocaldb;Database={databaseName};Trusted_Connection=True;MultipleActiveResultSets=true;TrustServerCertificate=True";
 
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseSqlServer(connection)
+            .UseSqlServer(connection, sql => sql.EnableRetryOnFailure(maxRetryCount: 5))
             .Options;
 
         var context = new ApplicationDbContext(options);
