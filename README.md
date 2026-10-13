@@ -101,28 +101,59 @@ dotnet run --project src/TechStore.Web
 
 Default MVC route: `/` → `HomeController.Index`.
 
+## First login (catalog admin)
+
+There is **no public admin registration**. On startup the seeder creates roles and, when configured, a single admin user from `Seed:AdminUser`:
+
+```json
+"Seed": {
+  "AdminUser": {
+    "Email": "admin@techstore.local",
+    "Password": "ChangeMe123!",
+    "FirstName": "System",
+    "LastName": "Admin"
+  }
+}
+```
+
+1. Start the app against LocalDB (or configured SQL Server).
+2. Open `/Account/Login`.
+3. Sign in with the seeded email/password.
+4. Change the password immediately in production (or override via User Secrets / environment variables before first run).
+
+Catalog pages (`/Categories`, `/Brands`, `/Products`, `/Attributes`) require roles **Admin** or **Manager**. Authorization is enforced on controllers, not only in the UI.
+
+## Catalog features (Phase 2)
+
+- Categories: list/create/edit/details/deactivate, hierarchy via `ParentId`, unique slug, cycle protection
+- Brands: list/create/edit/details/deactivate, unique name
+- Products: paged list, search (name/SKU), category/brand filters, sorting, create with at least one variant (SKU + prices), edit, deactivate
+- Dynamic attributes per category (`AttributeDefinition` / `AttributeOption` / `VariantAttributeValue`) with type validation
+
 ## Tests
 
 ```powershell
 dotnet test TechStore.sln
 ```
 
-- Unit tests cover domain constants and application `Result` helpers.
-- Integration tests use EF Core InMemory against `ApplicationDbContext` (no SQL Server required).
+- Unit tests cover domain hierarchy rules, slug helper, attribute value validation, and `Result`.
+- Integration tests cover catalog services (InMemory EF) and anonymous access redirects for catalog endpoints.
 
 ## Design notes / compromises
 
 1. **`ApplicationUser` lives in Infrastructure** because it inherits ASP.NET Core Identity types. Domain entities reference users via `int` foreign keys; Fluent API wires FKs to `ApplicationUser`.
-2. **No generic repository** — services will use `ApplicationDbContext` / `DbSet` directly.
+2. **No generic repository** — catalog services use `ApplicationDbContext` / `DbSet` directly.
 3. **Soft deactivation** (`IsActive`) is preferred over hard deletes for catalog entities that participate in order history.
 4. **Order line snapshots** store product name, variant name, SKU, and prices so history survives catalog changes.
 5. **`InventoryItem`** maps to table `Inventory` to match the logical schema while avoiding a class name clash.
 6. **Check constraints** enforce non-negative prices/quantities at the database level for money and stock fields.
+7. **SKU and prices live on `ProductVariant`**, not on `Product`.
+8. Phase 2 does **not** require a new EF migration — the existing schema already supports the catalog model.
 
-## Next milestones (not in this stage)
+## Next milestones
 
-- Product / category / order CRUD services and thin MVC controllers
 - Inventory movements and reservation workflow
+- Order placement and status workflow
 - CSV import pipeline
 - PDF order confirmation metadata generation
 - Reporting dashboards
