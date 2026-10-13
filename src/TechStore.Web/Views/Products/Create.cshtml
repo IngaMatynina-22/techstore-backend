@@ -1,0 +1,12 @@
+@model TechStore.Web.ViewModels.Catalog.ProductFormViewModel
+@{
+    ViewData["Title"] = "Create product";
+}
+<h1 class="h3 mb-3">Create product</h1>
+<form asp-action="Create" method="post">
+    <partial name="_ProductForm" />
+    <partial name="_VariantFields" />
+    <button type="submit" class="btn btn-primary">Create</button>
+    <a class="btn btn-link" asp-action="Index">Cancel</a>
+</form>
+@section Scripts { <partial name="_ValidationScriptsPartial" /> }

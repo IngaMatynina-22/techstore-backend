@@ -1,0 +1,49 @@
+@model TechStore.Web.ViewModels.Catalog.ProductFormViewModel
+<div asp-validation-summary="ModelOnly" class="text-danger"></div>
+<div class="row">
+    <div class="col-md-6 mb-3">
+        <label asp-for="Name" class="form-label"></label>
+        <input asp-for="Name" class="form-control" />
+        <span asp-validation-for="Name" class="text-danger"></span>
+    </div>
+    <div class="col-md-6 mb-3">
+        <label asp-for="Slug" class="form-label"></label>
+        <input asp-for="Slug" class="form-control" />
+        <span asp-validation-for="Slug" class="text-danger"></span>
+    </div>
+</div>
+<div class="row">
+    <div class="col-md-6 mb-3">
+        <label asp-for="CategoryId" class="form-label"></label>
+        <select asp-for="CategoryId" class="form-select" asp-items="ViewBag.Categories"></select>
+        <span asp-validation-for="CategoryId" class="text-danger"></span>
+    </div>
+    <div class="col-md-6 mb-3">
+        <label asp-for="BrandId" class="form-label"></label>
+        <select asp-for="BrandId" class="form-select" asp-items="ViewBag.Brands">
+            <option value="">— none —</option>
+        </select>
+    </div>
+</div>
+<div class="mb-3">
+    <label asp-for="ShortDescription" class="form-label"></label>
+    <textarea asp-for="ShortDescription" class="form-control" rows="2"></textarea>
+</div>
+<div class="mb-3">
+    <label asp-for="Description" class="form-label"></label>
+    <textarea asp-for="Description" class="form-control" rows="4"></textarea>
+</div>
+<div class="row">
+    <div class="col-md-4 mb-3">
+        <label asp-for="WarrantyMonths" class="form-label"></label>
+        <input asp-for="WarrantyMonths" class="form-control" />
+    </div>
+    <div class="col-md-4 mb-3">
+        <label asp-for="ImageUrl" class="form-label"></label>
+        <input asp-for="ImageUrl" class="form-control" />
+    </div>
+    <div class="col-md-4 mb-3 form-check mt-4">
+        <input asp-for="IsActive" class="form-check-input" />
+        <label asp-for="IsActive" class="form-check-label"></label>
+    </div>
+</div>
