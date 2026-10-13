@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -5,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using TechStore.Application.Features.Attributes;
 using TechStore.Application.Features.Brands;
 using TechStore.Application.Features.Categories;
+using TechStore.Application.Features.Inventory;
 using TechStore.Application.Features.Products;
 using TechStore.Infrastructure.Identity;
 using TechStore.Infrastructure.Persistence;
@@ -42,15 +44,25 @@ public static class DependencyInjection
 
         services.ConfigureApplicationCookie(options =>
         {
-            options.LoginPath = "/Account/Login";
-            options.AccessDeniedPath = "/Account/AccessDenied";
             options.SlidingExpiration = true;
+            options.Events.OnRedirectToLogin = context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return Task.CompletedTask;
+            };
+            options.Events.OnRedirectToAccessDenied = context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return Task.CompletedTask;
+            };
         });
 
         services.AddScoped<ICategoryService, CategoryService>();
         services.AddScoped<IBrandService, BrandService>();
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IAttributeDefinitionService, AttributeDefinitionService>();
+        services.AddScoped<IWarehouseService, WarehouseService>();
+        services.AddScoped<IInventoryService, InventoryService>();
 
         return services;
     }
