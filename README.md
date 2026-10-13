@@ -1,6 +1,6 @@
 # TechStore Backend
 
-Modular monolith for **TechStore** — catalog, warehouse inventory, stock movements, and order foundation (backend API only).
+Modular monolith for **TechStore** — catalog, warehouse inventory, stock movements, and order management (backend API only).
 
 ## Stack
 
@@ -70,15 +70,11 @@ On startup (when `Database:SeedOnStartup` is `true`), the app applies migrations
 - Order statuses
 - Seeded admin user from `Seed:AdminUser` (no public admin registration)
 
-### Phase 3 migration: `InventoryConcurrencyAndIdempotency`
+### Migrations (additive)
 
-Additive migration (does not drop catalog tables):
+**Phase 3 — `InventoryConcurrencyAndIdempotency`:** `Inventory.RowVersion`, movement before/after + `TransferGroupId`, `LowStockThreshold`, `StockOperationIdempotency`.
 
-- `Inventory.RowVersion` (SQL Server `rowversion`)
-- `StockMovements.QuantityBefore`, `QuantityAfter`, `TransferGroupId`
-- `ProductVariants.LowStockThreshold` (nullable, check ≥ 0)
-- Table `StockOperationIdempotency` with unique `IdempotencyKey`
-- Supporting indexes
+**Phase 4 — `OrderReservationAndCustomerUserLink`:** `Customers.UserId` (unique filtered), `Orders.WarehouseId`, `ShippingAddressId`, `HasActiveReservation`, table `OrderOperationIdempotency` (unique per user + key).
 
 ## Run
 
@@ -160,12 +156,15 @@ Operations write `StockMovement` history (not deleted via API):
 
 1. **Conditional atomic UPDATE** via EF `ExecuteUpdateAsync` on SQL Server:
    - Issue / transfer-out: `WHERE AvailableQuantity >= need` then decrement
-   - Adjustment: `WHERE QuantityOnHand == expected` then set target
-2. Stock change + movement (+ idempotency row) run in **one transaction**
+   - Adjustment: `WHERE QuantityOnHand == expected AND QuantityReserved <= target`
+   - Reserve: `WHERE Available >= qty` then `QuantityReserved += qty`
+   - Fulfill: `WHERE OnHand >= qty AND Reserved >= qty` then both decrement
+2. Stock change + movement (+ idempotency row) run in **one transaction** wrapped in `CreateExecutionStrategy()` (required with `EnableRetryOnFailure`)
 3. Transfer updates both warehouses in the **same transaction**
 4. `RowVersion` is configured for optimistic concurrency on tracked updates
 5. Race on stock → **409** (`insufficient_stock` / `concurrency_conflict`), not HTTP 500
-6. InMemory provider (unit/integration helpers) uses a tracked-entity fallback because it cannot translate `ExecuteUpdate`; **SQL Server concurrency is proven by** `ConcurrentIssues_DoNotOversell_OnSqlServer` (LocalDB)
+6. Movement `QuantityBefore`/`QuantityAfter` are derived from the post-update on-hand read
+7. InMemory fallback exists for tests; SQL Server concurrency is proven by LocalDB tests
 
 ### Idempotency
 
@@ -294,16 +293,111 @@ Problem Details style responses via `ApiControllerBase` / `AddProblemDetails()`.
 
 ---
 
+## Orders module (Phase 4)
+
+### Warehouse policy
+
+Each order targets a **single fulfillment warehouse** (`warehouseId` required on create). All line reservations and fulfillment use that warehouse. Multi-warehouse split shipping is out of scope.
+
+### Available quantity
+
+`Available = QuantityOnHand - QuantityReserved`
+
+Create order atomically reserves all lines. If any line fails, prior reserves are released and the draft order is discarded (no partial order).
+
+### Duplicate lines
+
+Repeated `productVariantId` values in one request are **aggregated** before stock checks and pricing.
+
+### Prices
+
+Unit prices come from `ProductVariant.SellingPrice` on the server. Snapshots are stored on `OrderItem` (`ProductName`, `Sku`, `UnitPrice`, `Subtotal`). Later catalog price changes do not alter historical orders.
+
+### Status lifecycle (seeded codes)
+
+| From | Allowed to |
+|------|------------|
+| New | Confirmed, Cancelled |
+| Confirmed | Processing, Cancelled |
+| Processing | ReadyForShipment, Completed, Cancelled |
+| ReadyForShipment | Shipped, Completed, Cancelled |
+| Shipped | Delivered |
+| Delivered | Completed |
+
+API shortcuts:
+
+- `POST .../confirm` — New → Confirmed
+- `POST .../start-processing` — Confirmed → Processing
+- `POST .../complete` — Processing|ReadyForShipment → Completed **and** fulfill stock
+- `POST .../cancel` — release reservation once (idempotent if already Cancelled)
+
+**Fulfillment:** for each line, `OnHand -= qty` and `Reserved -= qty` together; `StockMovement` type `Sale` with `ReferenceType=Order`, `ReferenceId=orderId`.
+
+**Cancel before fulfill:** `Reserved -= qty` only; on-hand unchanged; movement type `ReleaseReservation`.
+
+Customers may cancel only **New** or **Confirmed** orders they own. Cancel after shipment/completion is rejected (`invalid_transition`).
+
+### Order idempotency
+
+Optional `idempotencyKey` on create, unique per `(UserId, IdempotencyKey)`:
+
+- Same key + same payload → replay created order (`replayFromIdempotency: true`)
+- Same key + different payload → **409**
+- Key scoped to the authenticated user (cannot replay another user’s key)
+
+### Order API
+
+| Method | Route | Roles |
+|--------|-------|--------|
+| POST | `/api/orders` | Admin, Manager, Customer |
+| GET | `/api/orders` | Admin, Manager, Customer (own only) |
+| GET | `/api/orders/{id}` | owner or staff |
+| GET | `/api/orders/{id}/items` | owner or staff |
+| GET | `/api/orders/{id}/history` | owner or staff |
+| POST | `/api/orders/{id}/confirm` | Admin, Manager |
+| POST | `/api/orders/{id}/start-processing` | Admin, Manager |
+| POST | `/api/orders/{id}/complete` | Admin, Manager |
+| POST | `/api/orders/{id}/cancel` | owner (limited) or staff |
+| GET | `/api/orders/reports/summary` | Admin, Manager |
+| GET | `/api/orders/reports/by-period` | Admin, Manager |
+
+**Create example**
+
+```json
+{
+  "warehouseId": 1,
+  "shippingAddressId": 4,
+  "customerComment": "Call before delivery",
+  "deliveryMethod": "Courier",
+  "idempotencyKey": "checkout-session-42",
+  "customerId": 3,
+  "items": [
+    { "productVariantId": 12, "quantity": 2 },
+    { "productVariantId": 25, "quantity": 1 }
+  ]
+}
+```
+
+`customerId` is **required for staff** and **ignored for Customer** (owner comes from `Customer.UserId` ↔ Identity).
+
+**Reports:** cancelled orders are counted separately; `totalAmountCompleted` includes only `Completed` status. Range limited to 366 days. Aggregates use historical `Order.TotalAmount`, not current catalog prices.
+
+### Customer ↔ Identity
+
+`Customer.UserId` (nullable, unique when set) links a shopper Identity account to the CRM customer. Customers without a linked profile cannot create orders.
+
+---
+
 ## Tests
 
 ```powershell
 dotnet test TechStore.sln
 ```
 
-- **Unit:** domain rules (hierarchy, inventory, slug), validators, `Result`
-- **Integration:** catalog services (InMemory), inventory operations (InMemory + LocalDB concurrency), anonymous API **401**
+- **Unit:** domain rules (hierarchy, inventory, order transitions, slug), validators, `Result`
+- **Integration:** catalog, inventory, orders (InMemory + LocalDB concurrency), auth matrix (anonymous 401, Customer 403 on staff routes, Manager OK)
 
-Concurrency test requires LocalDB and creates/drops a temporary database (`TechStore_InvConcurrency_*`).
+LocalDB concurrency DBs: `TechStore_InvConcurrency_*`, `TechStore_OrdConcurrency_*`.
 
 ## Design notes
 
@@ -311,12 +405,15 @@ Concurrency test requires LocalDB and creates/drops a temporary database (`TechS
 2. **No generic repository / MediatR / AutoMapper.**
 3. Soft deactivate (`IsActive`) preferred over hard delete when history exists.
 4. Money as `decimal`; stock quantities as `int`.
-5. Stock history ≠ `AuditLog`: movements are business history; audit records user/system actions where wired.
-6. Reservation field exists for future order holds; Phase 3 does not implement reservation APIs.
+5. Stock history ≠ `AuditLog`.
+6. Payments/Shipments entities exist but are not integrated in Phase 4 (no fake payments/carriers).
+7. Returned status exists in seed but has no API transition yet.
 
 ## Next milestones
 
-- Order placement with stock reservation
+- Multi-warehouse allocation / reservation ledger per line
+- Returns (`Returned`) with stock restock
+- Payment and shipment workflows
 - CSV import pipeline
-- PDF order confirmation metadata
-- Stronger auth (JWT / refresh) if clients need non-cookie access
+- JWT if non-cookie clients are required
+
