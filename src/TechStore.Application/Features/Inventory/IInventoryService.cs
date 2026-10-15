@@ -49,4 +49,17 @@ public interface IInventoryService
     Task<StockMovementsPeriodReportDto> GetMovementsPeriodReportAsync(int? warehouseId, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default);
     Task<InventoryValuationDto?> GetInventoryValuationAsync(int warehouseId, CancellationToken cancellationToken = default);
     Task<InventoryIntegrityReportDto> GetIntegrityReportAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Applies an inventory-count adjustment when RowVersion and expected on-hand still match.
+    /// Returns movement id, or null when actual equals current (no-op). Caller owns the transaction.
+    /// </summary>
+    Task<Result<int?>> ApplyCountAdjustmentInAmbientAsync(
+        int inventoryId,
+        byte[] expectedRowVersion,
+        int expectedQuantity,
+        int actualQuantity,
+        int countSessionId,
+        int? userId,
+        CancellationToken cancellationToken = default);
 }

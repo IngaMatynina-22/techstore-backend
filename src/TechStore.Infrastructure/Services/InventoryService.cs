@@ -1315,6 +1315,89 @@ public class InventoryService : IInventoryService
         return Result.Success();
     }
 
+    public async Task<Result<int?>> ApplyCountAdjustmentInAmbientAsync(
+        int inventoryId,
+        byte[] expectedRowVersion,
+        int expectedQuantity,
+        int actualQuantity,
+        int countSessionId,
+        int? userId,
+        CancellationToken cancellationToken = default)
+    {
+        if (actualQuantity < 0)
+        {
+            return Result.Failure<int?>("Actual quantity cannot be negative.");
+        }
+
+        var item = await _db.Inventory.FirstOrDefaultAsync(i => i.Id == inventoryId, cancellationToken);
+        if (item is null)
+        {
+            return Result.NotFound<int?>("Inventory item not found.");
+        }
+
+        if (!item.RowVersion.SequenceEqual(expectedRowVersion ?? Array.Empty<byte>()))
+        {
+            return Result.Conflict<int?>(
+                "Inventory changed since the count snapshot (row version mismatch).",
+                ResultCodes.ConcurrencyConflict);
+        }
+
+        if (item.QuantityOnHand != expectedQuantity)
+        {
+            return Result.Conflict<int?>(
+                "Inventory on-hand no longer matches the count snapshot.",
+                ResultCodes.ConcurrencyConflict);
+        }
+
+        if (actualQuantity < item.QuantityReserved)
+        {
+            return Result.Conflict<int?>(
+                "Actual quantity cannot be less than reserved quantity.",
+                ResultCodes.InsufficientStock);
+        }
+
+        if (actualQuantity == item.QuantityOnHand)
+        {
+            return Result.Success<int?>(null);
+        }
+
+        var now = DateTime.UtcNow;
+        var before = item.QuantityOnHand;
+        var affected = await ApplyAbsoluteQuantityAsync(item.Id, before, actualQuantity, now, cancellationToken);
+        if (affected == 0)
+        {
+            return Result.Conflict<int?>(
+                "Inventory was changed by another operation during count apply.",
+                ResultCodes.ConcurrencyConflict);
+        }
+
+        var after = await ReadOnHandAsync(item.Id, cancellationToken);
+        var movement = new StockMovement
+        {
+            WarehouseId = item.WarehouseId,
+            VariantId = item.VariantId,
+            UserId = userId,
+            MovementType = StockMovementType.Adjustment,
+            Quantity = after - before,
+            QuantityBefore = before,
+            QuantityAfter = after,
+            ReferenceType = "InventoryCount",
+            ReferenceId = countSessionId,
+            Comment = $"Count session #{countSessionId}",
+            CreatedAt = now
+        };
+        _db.StockMovements.Add(movement);
+        await WriteAuditAsync(
+            userId,
+            "InventoryItem",
+            item.Id.ToString(),
+            AuditAction.Update,
+            $"Count adjust {before}->{after} session={countSessionId}",
+            cancellationToken);
+        await _db.SaveChangesAsync(cancellationToken);
+        return Result.Success<int?>(movement.Id);
+    }
+
     /// <summary>
     /// Decreases on-hand and reserved together (order fulfillment). Does not open a transaction.
     /// </summary>
