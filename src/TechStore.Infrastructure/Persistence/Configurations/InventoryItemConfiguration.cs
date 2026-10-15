@@ -12,6 +12,7 @@ public class InventoryItemConfiguration : IEntityTypeConfiguration<InventoryItem
         {
             t.HasCheckConstraint("CK_Inventory_QuantityOnHand", "[QuantityOnHand] >= 0");
             t.HasCheckConstraint("CK_Inventory_QuantityReserved", "[QuantityReserved] >= 0");
+            t.HasCheckConstraint("CK_Inventory_ReservedNotExceedOnHand", "[QuantityReserved] <= [QuantityOnHand]");
         });
 
         builder.HasKey(x => x.Id);

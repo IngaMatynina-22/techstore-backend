@@ -1,4 +1,5 @@
 using TechStore.Application.Common;
+using TechStore.Domain.Enums;
 
 namespace TechStore.Application.Features.Inventory;
 
@@ -27,7 +28,25 @@ public interface IInventoryService
     /// <summary>Decrements on-hand and reserved together; caller owns the transaction.</summary>
     Task<Result> FulfillReservedStockAsync(int warehouseId, int variantId, int quantity, int orderId, int? userId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Increases on-hand stock and writes a stock movement without opening a transaction.
+    /// Caller must provide the ambient transaction boundary (e.g. purchase-order receive, return restock).
+    /// Defaults to <see cref="StockMovementType.Receipt"/>; pass <see cref="StockMovementType.Return"/> for customer returns.
+    /// </summary>
+    Task<Result> ApplyReceiptInAmbientTransactionAsync(
+        int warehouseId,
+        int variantId,
+        int quantity,
+        decimal? unitCost,
+        string referenceType,
+        int referenceId,
+        int? userId,
+        string? comment,
+        CancellationToken cancellationToken = default,
+        StockMovementType movementType = StockMovementType.Receipt);
+
     Task<WarehouseSummaryDto?> GetWarehouseSummaryAsync(int warehouseId, CancellationToken cancellationToken = default);
     Task<StockMovementsPeriodReportDto> GetMovementsPeriodReportAsync(int? warehouseId, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default);
     Task<InventoryValuationDto?> GetInventoryValuationAsync(int warehouseId, CancellationToken cancellationToken = default);
+    Task<InventoryIntegrityReportDto> GetIntegrityReportAsync(CancellationToken cancellationToken = default);
 }

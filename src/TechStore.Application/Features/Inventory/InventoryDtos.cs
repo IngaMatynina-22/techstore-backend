@@ -185,3 +185,17 @@ public record InventoryValuationDto(
     int UnvaluedSkuCount,
     int TotalUnitsValued,
     string Notes);
+
+public record InventoryIntegrityIssueDto(
+    string Code,
+    string Severity,
+    int? InventoryId,
+    int? WarehouseId,
+    int? VariantId,
+    string Message);
+
+public record InventoryIntegrityReportDto(
+    DateTime GeneratedAtUtc,
+    int IssueCount,
+    IReadOnlyList<InventoryIntegrityIssueDto> Issues,
+    string Notes);

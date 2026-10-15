@@ -41,4 +41,8 @@ public class InventoryController : ApiControllerBase
         [FromBody] SetLowStockThresholdRequest request,
         CancellationToken cancellationToken)
         => FromResult(await _inventory.SetLowStockThresholdAsync(variantId, request, cancellationToken));
+
+    [HttpGet("integrity-report")]
+    public async Task<IActionResult> IntegrityReport(CancellationToken cancellationToken)
+        => Ok(await _inventory.GetIntegrityReportAsync(cancellationToken));
 }

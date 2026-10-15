@@ -22,4 +22,7 @@ public static class InventoryRules
 
     public static int ComputeAdjustmentDelta(int currentOnHand, int targetOnHand)
         => targetOnHand - currentOnHand;
+
+    public static bool IsReservedWithinOnHand(int quantityOnHand, int quantityReserved)
+        => quantityReserved >= 0 && quantityOnHand >= 0 && quantityReserved <= quantityOnHand;
 }

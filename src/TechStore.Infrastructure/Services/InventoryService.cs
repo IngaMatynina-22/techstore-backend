@@ -532,6 +532,8 @@ public class InventoryService : IInventoryService
                 };
 
                 _db.StockMovements.AddRange(outbound, inbound);
+                await WriteAuditAsync(userId, "InventoryItem", source.Id.ToString(), AuditAction.Update,
+                    $"Transfer {qty} to warehouse {request.DestinationWarehouseId} group={transferGroupId}", cancellationToken);
                 await _db.SaveChangesAsync(cancellationToken);
 
                 var result = new TransferOperationResultDto(
@@ -644,6 +646,118 @@ public class InventoryService : IInventoryService
             0,
             units,
             "Valuation uses current ProductVariant.PurchasePrice (not FIFO/average costing).");
+    }
+
+    public async Task<InventoryIntegrityReportDto> GetIntegrityReportAsync(CancellationToken cancellationToken = default)
+    {
+        var issues = new List<InventoryIntegrityIssueDto>();
+
+        var negative = await _db.Inventory.AsNoTracking()
+            .Where(i => i.QuantityOnHand < 0 || i.QuantityReserved < 0)
+            .Select(i => new { i.Id, i.WarehouseId, i.VariantId, i.QuantityOnHand, i.QuantityReserved })
+            .ToListAsync(cancellationToken);
+        foreach (var row in negative)
+        {
+            issues.Add(new InventoryIntegrityIssueDto(
+                "negative_quantity",
+                "critical",
+                row.Id,
+                row.WarehouseId,
+                row.VariantId,
+                $"OnHand={row.QuantityOnHand}, Reserved={row.QuantityReserved}"));
+        }
+
+        var overReserved = await _db.Inventory.AsNoTracking()
+            .Where(i => i.QuantityReserved > i.QuantityOnHand)
+            .Select(i => new { i.Id, i.WarehouseId, i.VariantId, i.QuantityOnHand, i.QuantityReserved })
+            .ToListAsync(cancellationToken);
+        foreach (var row in overReserved)
+        {
+            issues.Add(new InventoryIntegrityIssueDto(
+                "reserved_exceeds_on_hand",
+                "critical",
+                row.Id,
+                row.WarehouseId,
+                row.VariantId,
+                $"OnHand={row.QuantityOnHand}, Reserved={row.QuantityReserved}"));
+        }
+
+        var duplicates = await _db.Inventory.AsNoTracking()
+            .GroupBy(i => new { i.WarehouseId, i.VariantId })
+            .Where(g => g.Count() > 1)
+            .Select(g => new { g.Key.WarehouseId, g.Key.VariantId, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+        foreach (var dup in duplicates)
+        {
+            issues.Add(new InventoryIntegrityIssueDto(
+                "duplicate_inventory_row",
+                "critical",
+                null,
+                dup.WarehouseId,
+                dup.VariantId,
+                $"Found {dup.Count} inventory rows for the same warehouse/variant."));
+        }
+
+        var orphanWarehouse = await _db.Inventory.AsNoTracking()
+            .Where(i => !_db.Warehouses.Any(w => w.Id == i.WarehouseId))
+            .Select(i => new { i.Id, i.WarehouseId, i.VariantId })
+            .ToListAsync(cancellationToken);
+        foreach (var row in orphanWarehouse)
+        {
+            issues.Add(new InventoryIntegrityIssueDto(
+                "missing_warehouse",
+                "high",
+                row.Id,
+                row.WarehouseId,
+                row.VariantId,
+                "Inventory row references a missing warehouse."));
+        }
+
+        var orphanVariant = await _db.Inventory.AsNoTracking()
+            .Where(i => !_db.ProductVariants.Any(v => v.Id == i.VariantId))
+            .Select(i => new { i.Id, i.WarehouseId, i.VariantId })
+            .ToListAsync(cancellationToken);
+        foreach (var row in orphanVariant)
+        {
+            issues.Add(new InventoryIntegrityIssueDto(
+                "missing_variant",
+                "high",
+                row.Id,
+                row.WarehouseId,
+                row.VariantId,
+                "Inventory row references a missing product variant."));
+        }
+
+        var activeReservedOrders = await _db.Orders.AsNoTracking()
+            .Where(o => o.HasActiveReservation)
+            .Select(o => new { o.Id, o.WarehouseId, ReservedUnits = o.Items.Sum(i => i.Quantity) })
+            .ToListAsync(cancellationToken);
+
+        var warehouseReserved = await _db.Inventory.AsNoTracking()
+            .GroupBy(i => i.WarehouseId)
+            .Select(g => new { WarehouseId = g.Key, Reserved = g.Sum(i => i.QuantityReserved) })
+            .ToListAsync(cancellationToken);
+
+        foreach (var wh in warehouseReserved)
+        {
+            var orderReserved = activeReservedOrders.Where(o => o.WarehouseId == wh.WarehouseId).Sum(o => o.ReservedUnits);
+            if (wh.Reserved != orderReserved)
+            {
+                issues.Add(new InventoryIntegrityIssueDto(
+                    "reservation_mismatch",
+                    "medium",
+                    null,
+                    wh.WarehouseId,
+                    null,
+                    $"Warehouse reserved aggregate={wh.Reserved}, active order reserved lines={orderReserved}. Aggregate reservation model may diverge if non-order holds exist."));
+            }
+        }
+
+        return new InventoryIntegrityReportDto(
+            DateTime.UtcNow,
+            issues.Count,
+            issues,
+            "Read-only integrity scan. Corrections must use explicit authorized adjustments. Aggregate QuantityReserved is used (no separate reservation ledger).");
     }
 
     private async Task<PagedResult<InventoryItemDto>> QueryInventoryAsync(
@@ -1118,6 +1232,85 @@ public class InventoryService : IInventoryService
             Comment = $"Release reservation for order #{orderId}",
             CreatedAt = now
         });
+        await _db.SaveChangesAsync(cancellationToken);
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Increases on-hand and writes a Receipt movement. Does not open a transaction —
+    /// callers must provide the ambient transaction boundary.
+    /// </summary>
+    public async Task<Result> ApplyReceiptInAmbientTransactionAsync(
+        int warehouseId,
+        int variantId,
+        int quantity,
+        decimal? unitCost,
+        string referenceType,
+        int referenceId,
+        int? userId,
+        string? comment,
+        CancellationToken cancellationToken = default,
+        StockMovementType movementType = StockMovementType.Receipt)
+    {
+        if (!InventoryRules.IsPositiveQuantity(quantity))
+        {
+            return Result.Failure("Receipt quantity must be greater than zero.");
+        }
+
+        if (string.IsNullOrWhiteSpace(referenceType))
+        {
+            return Result.Failure("Reference type is required.");
+        }
+
+        if (movementType is not (StockMovementType.Receipt or StockMovementType.Return))
+        {
+            return Result.Failure("Ambient stock increase supports Receipt or Return movement types only.");
+        }
+
+        var validation = await ValidateWarehouseAndVariantAsync(
+            warehouseId, variantId, requireActiveWarehouse: true, requireActiveVariant: true, cancellationToken);
+        if (validation.IsFailure)
+        {
+            return validation;
+        }
+
+        var now = DateTime.UtcNow;
+        var item = await GetOrCreateInventoryAsync(warehouseId, variantId, now, cancellationToken);
+
+        var affected = await ApplyQuantityDeltaAsync(item.Id, quantity, requireAvailable: false, now, cancellationToken);
+        if (affected == 0)
+        {
+            return Result.Conflict(
+                "Inventory update failed due to a concurrent change.",
+                ResultCodes.ConcurrencyConflict);
+        }
+
+        var after = await ReadOnHandAsync(item.Id, cancellationToken);
+        var before = after - quantity;
+
+        _db.StockMovements.Add(new StockMovement
+        {
+            WarehouseId = warehouseId,
+            VariantId = variantId,
+            UserId = userId,
+            MovementType = movementType,
+            Quantity = quantity,
+            QuantityBefore = before,
+            QuantityAfter = after,
+            UnitCost = unitCost,
+            ReferenceType = referenceType.Trim(),
+            ReferenceId = referenceId,
+            Comment = Normalize(comment),
+            CreatedAt = now
+        });
+
+        await WriteAuditAsync(
+            userId,
+            "InventoryItem",
+            item.Id.ToString(),
+            AuditAction.Update,
+            $"{movementType} +{quantity} ref={referenceType.Trim()}:{referenceId}",
+            cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
