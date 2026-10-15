@@ -44,6 +44,15 @@ public class ApplicationDbContext
     public DbSet<ImportRow> ImportRows => Set<ImportRow>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<ApplicationSetting> ApplicationSettings => Set<ApplicationSetting>();
+    public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
+    public DbSet<PurchaseOrderItem> PurchaseOrderItems => Set<PurchaseOrderItem>();
+    public DbSet<PurchaseOrderStatusHistory> PurchaseOrderStatusHistories => Set<PurchaseOrderStatusHistory>();
+    public DbSet<PurchaseReceiptIdempotency> PurchaseReceiptIdempotencies => Set<PurchaseReceiptIdempotency>();
+    public DbSet<ReturnRequest> ReturnRequests => Set<ReturnRequest>();
+    public DbSet<ReturnItem> ReturnItems => Set<ReturnItem>();
+    public DbSet<ReturnStatusHistory> ReturnStatusHistories => Set<ReturnStatusHistory>();
+    public DbSet<InventoryCountSession> InventoryCountSessions => Set<InventoryCountSession>();
+    public DbSet<InventoryCountLine> InventoryCountLines => Set<InventoryCountLine>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

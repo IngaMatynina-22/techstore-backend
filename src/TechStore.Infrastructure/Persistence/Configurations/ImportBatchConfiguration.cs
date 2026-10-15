@@ -16,6 +16,7 @@ public class ImportBatchConfiguration : IEntityTypeConfiguration<ImportBatch>
         builder.Property(x => x.FilePath).HasMaxLength(500).IsRequired();
         builder.Property(x => x.ImportType).HasConversion<string>().HasMaxLength(50);
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(50);
+        builder.Property(x => x.Mode).HasMaxLength(30).IsRequired();
         builder.Property(x => x.CreatedAt).HasColumnType("datetime2");
         builder.Property(x => x.CompletedAt).HasColumnType("datetime2");
 

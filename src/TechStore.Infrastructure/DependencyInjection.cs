@@ -6,9 +6,14 @@ using Microsoft.Extensions.DependencyInjection;
 using TechStore.Application.Features.Attributes;
 using TechStore.Application.Features.Brands;
 using TechStore.Application.Features.Categories;
+using TechStore.Application.Features.Exports;
+using TechStore.Application.Features.Imports;
 using TechStore.Application.Features.Inventory;
 using TechStore.Application.Features.Orders;
 using TechStore.Application.Features.Products;
+using TechStore.Application.Features.Purchasing;
+using TechStore.Application.Features.Returns;
+using TechStore.Application.Features.Suppliers;
 using TechStore.Infrastructure.Identity;
 using TechStore.Infrastructure.Persistence;
 using TechStore.Infrastructure.Services;
@@ -65,6 +70,11 @@ public static class DependencyInjection
         services.AddScoped<IWarehouseService, WarehouseService>();
         services.AddScoped<IInventoryService, InventoryService>();
         services.AddScoped<IOrderService, OrderService>();
+        services.AddScoped<ISupplierService, SupplierService>();
+        services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
+        services.AddScoped<IReturnService, ReturnService>();
+        services.AddScoped<ICatalogImportService, CatalogImportService>();
+        services.AddScoped<ICatalogExportService, CatalogExportService>();
 
         return services;
     }
