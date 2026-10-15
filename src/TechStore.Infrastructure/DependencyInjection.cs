@@ -55,6 +55,9 @@ public static class DependencyInjection
         services.ConfigureApplicationCookie(options =>
         {
             options.SlidingExpiration = true;
+            options.Cookie.HttpOnly = true;
+            options.Cookie.SameSite = SameSiteMode.Lax;
+            options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
             options.Events.OnRedirectToLogin = context =>
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;

@@ -14,6 +14,15 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<ApplicationDbContext>("database");
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("SpaDev", policy =>
+        policy.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173")
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials());
+});
+
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
@@ -23,6 +32,7 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseCors("SpaDev");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
