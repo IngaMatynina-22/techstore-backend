@@ -2759,7 +2759,7 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                     b.HasOne("TechStore.Infrastructure.Identity.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("ReviewedByUserId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("TechStore.Domain.Entities.Warehouse", "Warehouse")
                         .WithMany()

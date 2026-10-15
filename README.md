@@ -70,6 +70,18 @@ On startup (when `Database:SeedOnStartup` is `true`), the app applies migrations
 - Order statuses
 - Seeded admin user from `Seed:AdminUser` (no public admin registration)
 
+### Demo / test data (optional)
+
+One-shot rich seed (catalog, warehouses, inventory, suppliers, POs, customers, orders, returns, counts, settings, imports, audit). Idempotent via warehouse code `WH-MAIN`.
+
+```powershell
+.\scripts\Seed-DemoData.ps1
+# or:
+dotnet run --project src/TechStore.Web -- --seed-demo
+```
+
+Or set `"Database": { "SeedDemoData": true }` and start the app normally (seeds once on startup).
+
 ### Migrations (additive)
 
 **Phase 3 — `InventoryConcurrencyAndIdempotency`:** `Inventory.RowVersion`, movement before/after + `TransferGroupId`, `LowStockThreshold`, `StockOperationIdempotency`.

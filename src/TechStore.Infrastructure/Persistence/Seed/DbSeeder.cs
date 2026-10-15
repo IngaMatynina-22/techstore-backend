@@ -25,6 +25,13 @@ public static class DbSeeder
             await SeedRolesAsync(sp, cancellationToken);
             await SeedOrderStatusesAsync(context, cancellationToken);
             await SeedAdminUserAsync(sp, cancellationToken);
+
+            var seedDemo = sp.GetRequiredService<IConfiguration>()
+                .GetValue("Database:SeedDemoData", false);
+            if (seedDemo)
+            {
+                await DemoDataSeeder.SeedAsync(sp, cancellationToken);
+            }
         }
         catch (Exception ex)
         {

@@ -132,8 +132,7 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                         name: "FK_ReturnRequests_AspNetUsers_ReviewedByUserId",
                         column: x => x.ReviewedByUserId,
                         principalTable: "AspNetUsers",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
+                        principalColumn: "Id");
                     table.ForeignKey(
                         name: "FK_ReturnRequests_Customers_CustomerId",
                         column: x => x.CustomerId,

@@ -4,7 +4,18 @@ using TechStore.Infrastructure;
 using TechStore.Infrastructure.Persistence;
 using TechStore.Web.Extensions;
 
+var seedDemoOnly = args.Any(a => string.Equals(a, "--seed-demo", StringComparison.OrdinalIgnoreCase));
+
 var builder = WebApplication.CreateBuilder(args);
+
+if (seedDemoOnly)
+{
+    builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        ["Database:SeedOnStartup"] = "true",
+        ["Database:SeedDemoData"] = "true"
+    });
+}
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
@@ -40,6 +51,12 @@ app.MapGet("/health/live", () => Results.Ok(new { status = "Healthy" }));
 app.MapHealthChecks("/health/ready");
 
 await app.InitializeDatabaseAsync();
+
+if (seedDemoOnly)
+{
+    Console.WriteLine("Demo data seed finished. Exiting (--seed-demo).");
+    return;
+}
 
 app.Run();
 

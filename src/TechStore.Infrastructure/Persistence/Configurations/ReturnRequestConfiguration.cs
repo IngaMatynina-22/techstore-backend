@@ -51,7 +51,7 @@ public class ReturnRequestConfiguration : IEntityTypeConfiguration<ReturnRequest
         builder.HasOne<ApplicationUser>()
             .WithMany()
             .HasForeignKey(x => x.ReviewedByUserId)
-            .OnDelete(DeleteBehavior.SetNull);
+            .OnDelete(DeleteBehavior.NoAction);
 
         builder.HasMany(x => x.Items)
             .WithOne(x => x.ReturnRequest)
