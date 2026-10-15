@@ -4,15 +4,19 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using TechStore.Application.Features.Attributes;
+using TechStore.Application.Features.Audit;
 using TechStore.Application.Features.Brands;
 using TechStore.Application.Features.Categories;
 using TechStore.Application.Features.Exports;
 using TechStore.Application.Features.Imports;
 using TechStore.Application.Features.Inventory;
+using TechStore.Application.Features.InventoryCounts;
 using TechStore.Application.Features.Orders;
 using TechStore.Application.Features.Products;
 using TechStore.Application.Features.Purchasing;
+using TechStore.Application.Features.Reports;
 using TechStore.Application.Features.Returns;
+using TechStore.Application.Features.Settings;
 using TechStore.Application.Features.Suppliers;
 using TechStore.Infrastructure.Identity;
 using TechStore.Infrastructure.Persistence;
@@ -75,6 +79,10 @@ public static class DependencyInjection
         services.AddScoped<IReturnService, ReturnService>();
         services.AddScoped<ICatalogImportService, CatalogImportService>();
         services.AddScoped<ICatalogExportService, CatalogExportService>();
+        services.AddScoped<IAnalyticsService, AnalyticsService>();
+        services.AddScoped<IInventoryCountService, InventoryCountService>();
+        services.AddScoped<ISettingsService, SettingsService>();
+        services.AddScoped<IAuditQueryService, AuditQueryService>();
 
         return services;
     }
