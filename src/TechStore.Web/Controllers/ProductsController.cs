@@ -5,7 +5,7 @@ using TechStore.Domain.Common;
 
 namespace TechStore.Web.Controllers;
 
-[Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
+[Authorize]
 [Route("api/products")]
 public class ProductsController : ApiControllerBase
 {
@@ -16,10 +16,12 @@ public class ProductsController : ApiControllerBase
         _products = products;
     }
 
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager},{ApplicationRoles.Customer}")]
     [HttpGet]
     public async Task<IActionResult> GetPaged([FromQuery] ProductQuery query, CancellationToken cancellationToken)
         => Ok(await _products.GetPagedAsync(query, cancellationToken));
 
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager},{ApplicationRoles.Customer}")]
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
@@ -27,6 +29,7 @@ public class ProductsController : ApiControllerBase
         return item is null ? NotFound() : Ok(item);
     }
 
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateProductRequest request, CancellationToken cancellationToken)
     {
@@ -36,14 +39,17 @@ public class ProductsController : ApiControllerBase
             : FromResult(result);
     }
 
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
     [HttpPut("{id:int}")]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateProductRequest request, CancellationToken cancellationToken)
         => FromResult(await _products.UpdateAsync(id, request, CurrentUserId, cancellationToken));
 
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
     [HttpPost("{id:int}/deactivate")]
     public async Task<IActionResult> Deactivate(int id, CancellationToken cancellationToken)
         => FromResult(await _products.DeactivateAsync(id, CurrentUserId, cancellationToken));
 
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
     [HttpPost("{id:int}/variants")]
     public async Task<IActionResult> AddVariant(int id, [FromBody] ProductVariantInput request, CancellationToken cancellationToken)
     {
@@ -53,6 +59,7 @@ public class ProductsController : ApiControllerBase
             : FromResult(result);
     }
 
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
     [HttpPut("{id:int}/variants/{variantId:int}")]
     public async Task<IActionResult> UpdateVariant(
         int id,

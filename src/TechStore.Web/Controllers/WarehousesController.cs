@@ -5,7 +5,7 @@ using TechStore.Domain.Common;
 
 namespace TechStore.Web.Controllers;
 
-[Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
+[Authorize]
 [Route("api/warehouses")]
 public class WarehousesController : ApiControllerBase
 {
@@ -18,10 +18,13 @@ public class WarehousesController : ApiControllerBase
         _inventory = inventory;
     }
 
+    /// <summary>Customer may list warehouses to pick fulfillment location when placing an order.</summary>
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager},{ApplicationRoles.Customer}")]
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] bool includeInactive = true, CancellationToken cancellationToken = default)
         => Ok(await _warehouses.GetAllAsync(includeInactive, cancellationToken));
 
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
@@ -29,6 +32,7 @@ public class WarehousesController : ApiControllerBase
         return item is null ? NotFound() : Ok(item);
     }
 
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateWarehouseRequest request, CancellationToken cancellationToken)
     {
@@ -38,14 +42,17 @@ public class WarehousesController : ApiControllerBase
             : FromResult(result);
     }
 
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
     [HttpPut("{id:int}")]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateWarehouseRequest request, CancellationToken cancellationToken)
         => FromResult(await _warehouses.UpdateAsync(id, request, cancellationToken));
 
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Deactivate(int id, CancellationToken cancellationToken)
         => FromResult(await _warehouses.DeactivateAsync(id, cancellationToken));
 
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
     [HttpGet("{id:int}/summary")]
     public async Task<IActionResult> Summary(int id, CancellationToken cancellationToken)
     {
@@ -53,6 +60,7 @@ public class WarehousesController : ApiControllerBase
         return summary is null ? NotFound() : Ok(summary);
     }
 
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
     [HttpGet("{id:int}/valuation")]
     public async Task<IActionResult> Valuation(int id, CancellationToken cancellationToken)
     {

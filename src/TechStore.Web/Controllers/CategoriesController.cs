@@ -5,7 +5,7 @@ using TechStore.Domain.Common;
 
 namespace TechStore.Web.Controllers;
 
-[Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
+[Authorize]
 [Route("api/categories")]
 public class CategoriesController : ApiControllerBase
 {
@@ -16,10 +16,12 @@ public class CategoriesController : ApiControllerBase
         _categories = categories;
     }
 
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager},{ApplicationRoles.Customer}")]
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] bool includeInactive = true, CancellationToken cancellationToken = default)
         => Ok(await _categories.GetListAsync(includeInactive, cancellationToken));
 
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager},{ApplicationRoles.Customer}")]
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
@@ -27,6 +29,7 @@ public class CategoriesController : ApiControllerBase
         return item is null ? NotFound() : Ok(item);
     }
 
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateCategoryRequest request, CancellationToken cancellationToken)
     {
@@ -36,10 +39,12 @@ public class CategoriesController : ApiControllerBase
             : FromResult(result);
     }
 
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
     [HttpPut("{id:int}")]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateCategoryRequest request, CancellationToken cancellationToken)
         => FromResult(await _categories.UpdateAsync(id, request, cancellationToken));
 
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
     [HttpPost("{id:int}/deactivate")]
     public async Task<IActionResult> Deactivate(int id, CancellationToken cancellationToken)
         => FromResult(await _categories.DeactivateAsync(id, cancellationToken));
