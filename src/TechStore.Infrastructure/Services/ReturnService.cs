@@ -304,6 +304,34 @@ public class ReturnService : IReturnService
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<int> GetPendingCountAsync(
+        ActorContext actor,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _db.ReturnRequests.AsNoTracking().AsQueryable();
+
+        if (actor.IsCustomer && !actor.IsStaff)
+        {
+            var customerId = await GetCustomerIdForUserAsync(actor.UserId, cancellationToken);
+            if (customerId is null)
+            {
+                return 0;
+            }
+
+            query = query.Where(r => r.CustomerId == customerId.Value);
+        }
+
+        var pendingStatuses = new[]
+        {
+            ReturnRequestStatus.Requested,
+            ReturnRequestStatus.Approved,
+            ReturnRequestStatus.Received,
+            ReturnRequestStatus.Restocked
+        };
+
+        return await query.CountAsync(r => pendingStatuses.Contains(r.Status), cancellationToken);
+    }
+
     public Task<Result<ReturnDetailsDto>> ApproveAsync(
         int id,
         ActorContext actor,

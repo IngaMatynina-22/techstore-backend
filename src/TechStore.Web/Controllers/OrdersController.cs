@@ -77,6 +77,10 @@ public class OrdersController : ApiControllerBase
     public async Task<IActionResult> Cancel(int id, [FromBody] CancelOrderRequest? body, CancellationToken cancellationToken)
         => FromResult(await _orders.CancelAsync(id, BuildActor(), body?.Comment, cancellationToken));
 
+    [HttpGet("pending-count")]
+    public async Task<IActionResult> GetPendingCount(CancellationToken cancellationToken)
+        => Ok(await _orders.GetPendingCountAsync(BuildActor(), cancellationToken));
+
     [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
     [HttpGet("reports/summary")]
     public async Task<IActionResult> PeriodSummary(

@@ -92,6 +92,8 @@ public class SettingsService : ISettingsService
         {
             case AllowedSettings.StoreDisplayName:
             case AllowedSettings.DocumentIssuerName:
+            case AllowedSettings.ManagerName:
+            case AllowedSettings.ManagerPhone:
                 if (string.IsNullOrWhiteSpace(value) || value.Trim().Length > 200)
                 {
                     return "Value is required and must be at most 200 characters.";
@@ -116,6 +118,22 @@ public class SettingsService : ISettingsService
                 if (!int.TryParse(value, out var bytes) || bytes < 1024 || bytes > 5 * 1024 * 1024)
                 {
                     return "MaxImportFileBytes must be between 1024 and 5242880.";
+                }
+
+                break;
+            case AllowedSettings.UiLanguage:
+                var lang = value?.Trim();
+                if (string.IsNullOrWhiteSpace(lang) || !new[] { "uk", "en", "ru" }.Contains(lang, StringComparer.OrdinalIgnoreCase))
+                {
+                    return "UiLanguage must be one of: uk, en, ru.";
+                }
+
+                break;
+            case AllowedSettings.ManagerEmail:
+                var email = value?.Trim();
+                if (string.IsNullOrWhiteSpace(email) || email.Length > 255 || !email.Contains('@'))
+                {
+                    return "ManagerEmail must be a valid email address.";
                 }
 
                 break;

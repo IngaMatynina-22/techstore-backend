@@ -13,6 +13,7 @@ public interface IOrderService
     Task<Result<OrderDetailsDto>> StartProcessingAsync(int id, ActorContext actor, CancellationToken cancellationToken = default);
     Task<Result<OrderDetailsDto>> CompleteAsync(int id, ActorContext actor, CancellationToken cancellationToken = default);
     Task<Result<OrderDetailsDto>> CancelAsync(int id, ActorContext actor, string? comment = null, CancellationToken cancellationToken = default);
+    Task<int> GetPendingCountAsync(ActorContext actor, CancellationToken cancellationToken = default);
 
     Task<Result<OrderPeriodSummaryDto>> GetPeriodSummaryAsync(DateTime fromUtc, DateTime toUtc, int? statusId, ActorContext actor, CancellationToken cancellationToken = default);
     Task<Result<IReadOnlyList<OrdersByDayDto>>> GetByDayReportAsync(DateTime fromUtc, DateTime toUtc, ActorContext actor, CancellationToken cancellationToken = default);

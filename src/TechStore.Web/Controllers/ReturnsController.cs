@@ -40,6 +40,10 @@ public class ReturnsController : ApiControllerBase
         return entity is null ? NotFound() : Ok(entity);
     }
 
+    [HttpGet("pending-count")]
+    public async Task<IActionResult> GetPendingCount(CancellationToken cancellationToken)
+        => Ok(await _returns.GetPendingCountAsync(BuildActor(), cancellationToken));
+
     [HttpGet("{id:int}/history")]
     public async Task<IActionResult> GetHistory(int id, CancellationToken cancellationToken)
     {

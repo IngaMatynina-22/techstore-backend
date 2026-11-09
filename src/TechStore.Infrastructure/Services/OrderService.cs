@@ -440,6 +440,44 @@ public class OrderService : IOrderService
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<int> GetPendingCountAsync(ActorContext actor, CancellationToken cancellationToken = default)
+    {
+        var query = _db.Orders.AsNoTracking().AsQueryable();
+
+        if (actor.IsCustomer && !actor.IsStaff)
+        {
+            var customerId = await GetCustomerIdForUserAsync(actor.UserId, cancellationToken);
+            if (customerId is null)
+            {
+                return 0;
+            }
+
+            query = query.Where(o => o.CustomerId == customerId.Value);
+        }
+
+        var pendingStatusCodes = new[]
+        {
+            OrderStatusCodes.New,
+            OrderStatusCodes.Confirmed,
+            OrderStatusCodes.Processing,
+            OrderStatusCodes.ReadyForShipment,
+            OrderStatusCodes.Shipped,
+            OrderStatusCodes.Delivered
+        };
+
+        var pendingStatusIds = await _db.OrderStatuses.AsNoTracking()
+            .Where(s => pendingStatusCodes.Contains(s.Code))
+            .Select(s => s.Id)
+            .ToListAsync(cancellationToken);
+
+        if (pendingStatusIds.Count == 0)
+        {
+            return 0;
+        }
+
+        return await query.CountAsync(o => pendingStatusIds.Contains(o.StatusId), cancellationToken);
+    }
+
     public Task<Result<OrderDetailsDto>> ConfirmAsync(int id, ActorContext actor, CancellationToken cancellationToken = default)
         => TransitionStaffAsync(id, actor, OrderStatusCodes.Confirmed, "Confirmed", setConfirmed: true, cancellationToken);
 

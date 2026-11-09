@@ -54,4 +54,8 @@ public interface IReturnService
         ActorContext actor,
         string? comment = null,
         CancellationToken cancellationToken = default);
+
+    Task<int> GetPendingCountAsync(
+        ActorContext actor,
+        CancellationToken cancellationToken = default);
 }

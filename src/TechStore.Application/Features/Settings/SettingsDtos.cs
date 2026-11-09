@@ -15,6 +15,10 @@ public static class AllowedSettings
     public const string CurrencyCode = "CurrencyCode";
     public const string MaxImportFileBytes = "MaxImportFileBytes";
     public const string DocumentIssuerName = "DocumentIssuerName";
+    public const string UiLanguage = "UiLanguage";
+    public const string ManagerName = "ManagerName";
+    public const string ManagerPhone = "ManagerPhone";
+    public const string ManagerEmail = "ManagerEmail";
 
     public static readonly HashSet<string> Keys = new(StringComparer.Ordinal)
     {
@@ -22,6 +26,10 @@ public static class AllowedSettings
         DefaultLowStockThreshold,
         CurrencyCode,
         MaxImportFileBytes,
-        DocumentIssuerName
+        DocumentIssuerName,
+        UiLanguage,
+        ManagerName,
+        ManagerPhone,
+        ManagerEmail
     };
 }
