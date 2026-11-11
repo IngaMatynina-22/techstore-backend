@@ -11,7 +11,7 @@ public class CreateOrderItemRequest
 public class CreateOrderRequest
 {
     public List<CreateOrderItemRequest> Items { get; set; } = [];
-    public int WarehouseId { get; set; }
+    public int? WarehouseId { get; set; }
     public int? ShippingAddressId { get; set; }
     public DeliveryMethod DeliveryMethod { get; set; } = DeliveryMethod.Courier;
     public string? CustomerComment { get; set; }
@@ -66,7 +66,7 @@ public record OrderSummaryDto(
     int StatusId,
     string StatusCode,
     string StatusName,
-    int WarehouseId,
+    int? WarehouseId,
     decimal TotalAmount,
     bool HasActiveReservation,
     DateTime CreatedAt,
@@ -84,7 +84,7 @@ public record OrderDetailsDto(
     int StatusId,
     string StatusCode,
     string StatusName,
-    int WarehouseId,
+    int? WarehouseId,
     int? ShippingAddressId,
     DeliveryMethod DeliveryMethod,
     string? DeliveryAddress,
@@ -120,4 +120,9 @@ public class ActorContext
     public int UserId { get; init; }
     public bool IsStaff { get; init; }
     public bool IsCustomer { get; init; }
+}
+
+public class AssignOrderWarehouseRequest
+{
+    public int WarehouseId { get; set; }
 }

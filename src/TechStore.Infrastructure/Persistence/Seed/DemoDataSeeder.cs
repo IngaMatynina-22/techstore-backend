@@ -60,12 +60,12 @@ public static class DemoDataSeeder
         };
         db.Brands.AddRange(brands);
 
-        var catRoot = new Category { Name = "Electronics", Slug = "electronics", Description = "All electronics", SortOrder = 1, IsActive = true, CreatedAt = now };
-        var catLaptops = new Category { Name = "Laptops", Slug = "laptops", Description = "Notebooks", SortOrder = 1, IsActive = true, CreatedAt = now, Parent = catRoot };
-        var catPhones = new Category { Name = "Phones", Slug = "phones", Description = "Smartphones", SortOrder = 2, IsActive = true, CreatedAt = now, Parent = catRoot };
-        var catAcc = new Category { Name = "Accessories", Slug = "accessories", Description = "Keyboards, mice, cases", SortOrder = 3, IsActive = true, CreatedAt = now, Parent = catRoot };
-        var catComponents = new Category { Name = "Components", Slug = "components", Description = "PC parts", SortOrder = 2, IsActive = true, CreatedAt = now };
-        var catStorage = new Category { Name = "Storage", Slug = "storage", Description = "SSD / HDD", SortOrder = 1, IsActive = true, CreatedAt = now, Parent = catComponents };
+        var catRoot = new Category { Name = "Електроніка", Slug = "electronics", Description = "Уся електроніка", SortOrder = 1, IsActive = true, CreatedAt = now };
+        var catLaptops = new Category { Name = "Ноутбуки", Slug = "laptops", Description = "Портативні комп’ютери", SortOrder = 1, IsActive = true, CreatedAt = now, Parent = catRoot };
+        var catPhones = new Category { Name = "Смартфони", Slug = "phones", Description = "Мобільні телефони", SortOrder = 2, IsActive = true, CreatedAt = now, Parent = catRoot };
+        var catAcc = new Category { Name = "Аксесуари", Slug = "accessories", Description = "Клавіатури, миші, чохли", SortOrder = 3, IsActive = true, CreatedAt = now, Parent = catRoot };
+        var catComponents = new Category { Name = "Комплектуючі", Slug = "components", Description = "Комплектуючі для комп’ютерів", SortOrder = 2, IsActive = true, CreatedAt = now };
+        var catStorage = new Category { Name = "Накопичувачі", Slug = "storage", Description = "SSD / HDD", SortOrder = 1, IsActive = true, CreatedAt = now, Parent = catComponents };
         db.Categories.AddRange(catRoot, catLaptops, catPhones, catAcc, catComponents, catStorage);
 
         await db.SaveChangesAsync(cancellationToken);

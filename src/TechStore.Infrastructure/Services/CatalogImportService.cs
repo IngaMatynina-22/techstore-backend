@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using TechStore.Application.Common;
 using TechStore.Application.Features.Imports;
+using TechStore.Application.Features.Inventory;
 using TechStore.Domain.Entities;
 using TechStore.Domain.Enums;
 using TechStore.Infrastructure.Persistence;
@@ -24,11 +25,28 @@ public class CatalogImportService : ICatalogImportService
         "IsActive"
     ];
 
-    private readonly ApplicationDbContext _db;
+    private static readonly HashSet<string> InventoryHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Sku",
+        "WarehouseCode",
+        "QuantityOnHand",
+        "ProductName",
+        "VariantName",
+        "CategorySlug",
+        "BrandName",
+        "PurchasePrice",
+        "SellingPrice",
+        "Barcode",
+        "IsActive"
+    };
 
-    public CatalogImportService(ApplicationDbContext db)
+    private readonly ApplicationDbContext _db;
+    private readonly IInventoryService _inventory;
+
+    public CatalogImportService(ApplicationDbContext db, IInventoryService inventory)
     {
         _db = db;
+        _inventory = inventory;
     }
 
     public async Task<Result<ImportBatchDto>> ImportProductsAsync(
@@ -232,6 +250,375 @@ public class CatalogImportService : ICatalogImportService
         }
 
         return Result.Success((await GetBatchAsync(batch.Id, cancellationToken))!);
+    }
+
+    public async Task<Result<ImportBatchDto>> ImportInventoryAsync(
+        Stream fileStream,
+        string fileName,
+        long fileLength,
+        int userId,
+        CancellationToken cancellationToken = default)
+    {
+        if (userId <= 0)
+        {
+            return Result.Failure<ImportBatchDto>("Authenticated user is required.");
+        }
+
+        if (fileLength <= 0)
+        {
+            return Result.Failure<ImportBatchDto>("CSV file is required.");
+        }
+
+        if (fileLength > CsvUtil.MaxImportBytes)
+        {
+            return Result.Failure<ImportBatchDto>("CSV file must be at most 2MB.");
+        }
+
+        var rows = await CsvUtil.ReadRowsAsync(fileStream, cancellationToken);
+        if (rows.Count == 0)
+        {
+            return Result.Failure<ImportBatchDto>("CSV file is empty.");
+        }
+
+        if (rows.Count > CsvUtil.MaxImportRows + 1)
+        {
+            return Result.Failure<ImportBatchDto>("CSV file must contain at most 5000 data rows.");
+        }
+
+        var headers = rows[0].Select(h => h.Trim()).ToArray();
+        var headerSet = new HashSet<string>(headers, StringComparer.OrdinalIgnoreCase);
+        if (!headerSet.Contains("Sku") ||
+            !headerSet.Contains("WarehouseCode") ||
+            !headerSet.Contains("QuantityOnHand") ||
+            headers.Any(h => !InventoryHeaders.Contains(h)) ||
+            headerSet.Count != headers.Length)
+        {
+            return Result.Failure<ImportBatchDto>(
+                "Invalid CSV header. Required: Sku,WarehouseCode,QuantityOnHand. Optional: " +
+                string.Join(",", InventoryHeaders.Except(["Sku", "WarehouseCode", "QuantityOnHand"])));
+        }
+
+        var parsed = rows.Skip(1)
+            .Select((cells, index) => ParseInventoryRow(index + 2, headers, cells))
+            .ToList();
+        var duplicateKeys = parsed
+            .Where(r => !string.IsNullOrWhiteSpace(r.Sku) && !string.IsNullOrWhiteSpace(r.WarehouseCode))
+            .GroupBy(r => $"{r.WarehouseCode}\u001f{r.Sku}", StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var row in parsed)
+        {
+            if (duplicateKeys.Contains($"{row.WarehouseCode}\u001f{row.Sku}"))
+            {
+                row.AddError("Duplicate SKU and warehouse combination in the file.");
+            }
+        }
+
+        var batch = new ImportBatch
+        {
+            UserId = userId,
+            FileName = string.IsNullOrWhiteSpace(fileName) ? "inventory.csv" : Path.GetFileName(fileName),
+            FilePath = "inline",
+            ImportType = ImportType.Inventory,
+            Status = ImportStatus.Processing,
+            Mode = "supplierinventory",
+            TotalRows = parsed.Count,
+            CreatedAt = DateTime.UtcNow
+        };
+        _db.ImportBatches.Add(batch);
+        await _db.SaveChangesAsync(cancellationToken);
+        var batchId = batch.Id;
+        _db.ChangeTracker.Clear();
+
+        var succeeded = 0;
+        var failed = 0;
+        var strategy = _db.Database.CreateExecutionStrategy();
+        foreach (var row in parsed)
+        {
+            if (row.Errors.Count > 0)
+            {
+                failed++;
+                await SaveInventoryImportRowAsync(batchId, row, null, string.Join("; ", row.Errors), cancellationToken);
+                continue;
+            }
+
+            var productId = 0;
+            string? rowError = null;
+            try
+            {
+                await strategy.ExecuteAsync(async () =>
+                {
+                    _db.ChangeTracker.Clear();
+                    await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
+                    try
+                    {
+                        var existingRow = await _db.ImportRows
+                            .AsNoTracking()
+                            .FirstOrDefaultAsync(
+                                r => r.BatchId == batchId && r.RowNumber == row.RowNumber,
+                                cancellationToken);
+                        if (existingRow is not null)
+                        {
+                            productId = existingRow.ProductId ?? 0;
+                            await tx.RollbackAsync(cancellationToken);
+                            return;
+                        }
+
+                        var variant = await _db.ProductVariants
+                            .Include(v => v.Product)
+                            .FirstOrDefaultAsync(v => v.Sku == row.Sku, cancellationToken);
+                        if (variant is null)
+                        {
+                            rowError = $"SKU '{row.Sku}' was not found.";
+                            await tx.RollbackAsync(cancellationToken);
+                            return;
+                        }
+
+                        var warehouse = await _db.Warehouses
+                            .FirstOrDefaultAsync(w => w.Code == row.WarehouseCode && w.IsActive, cancellationToken);
+                        if (warehouse is null)
+                        {
+                            rowError = $"Active warehouse '{row.WarehouseCode}' was not found.";
+                            await tx.RollbackAsync(cancellationToken);
+                            return;
+                        }
+
+                        Category? category = null;
+                        if (row.CategorySlug is not null)
+                        {
+                            category = await _db.Categories
+                                .FirstOrDefaultAsync(c => c.Slug == row.CategorySlug && c.IsActive, cancellationToken);
+                            if (category is null)
+                            {
+                                rowError = $"Active category slug '{row.CategorySlug}' was not found.";
+                                await tx.RollbackAsync(cancellationToken);
+                                return;
+                            }
+                        }
+
+                        Brand? brand = null;
+                        if (row.BrandName is not null)
+                        {
+                            brand = await _db.Brands
+                                .FirstOrDefaultAsync(b => b.Name == row.BrandName && b.IsActive, cancellationToken);
+                            if (brand is null)
+                            {
+                                rowError = $"Active brand '{row.BrandName}' was not found.";
+                                await tx.RollbackAsync(cancellationToken);
+                                return;
+                            }
+                        }
+
+                        variant.Product.Name = row.ProductName ?? variant.Product.Name;
+                        variant.VariantName = row.VariantName ?? variant.VariantName;
+                        variant.Product.CategoryId = category?.Id ?? variant.Product.CategoryId;
+                        if (row.BrandName is not null)
+                        {
+                            variant.Product.BrandId = brand!.Id;
+                        }
+
+                        variant.PurchasePrice = row.PurchasePrice ?? variant.PurchasePrice;
+                        variant.SellingPrice = row.SellingPrice ?? variant.SellingPrice;
+                        variant.Barcode = row.Barcode ?? variant.Barcode;
+                        if (row.IsActive.HasValue)
+                        {
+                            variant.IsActive = row.IsActive.Value;
+                            variant.Product.IsActive = row.IsActive.Value;
+                        }
+
+                        variant.UpdatedAt = DateTime.UtcNow;
+                        variant.Product.UpdatedAt = DateTime.UtcNow;
+                        variant.Product.UpdatedBy = userId;
+
+                        var adjustment = await _inventory.AdjustToQuantityInAmbientTransactionAsync(
+                            warehouse.Id,
+                            variant.Id,
+                            row.QuantityOnHand,
+                            $"Supplier import batch #{batchId}, row {row.RowNumber}",
+                            userId,
+                            cancellationToken);
+                        if (adjustment.IsFailure)
+                        {
+                            rowError = adjustment.Error ?? "Inventory adjustment failed.";
+                            await tx.RollbackAsync(cancellationToken);
+                            return;
+                        }
+
+                        productId = variant.ProductId;
+                        _db.ImportRows.Add(new ImportRow
+                        {
+                            BatchId = batchId,
+                            RowNumber = row.RowNumber,
+                            RowData = row.RowData,
+                            Status = ImportRowStatus.Success,
+                            ProductId = productId,
+                            ProcessedAt = DateTime.UtcNow
+                        });
+                        await _db.SaveChangesAsync(cancellationToken);
+                        await tx.CommitAsync(cancellationToken);
+                    }
+                    catch
+                    {
+                        await tx.RollbackAsync(cancellationToken);
+                        throw;
+                    }
+                });
+            }
+            catch (DbUpdateException ex)
+            {
+                rowError = ex.Message;
+            }
+
+            if (rowError is null)
+            {
+                succeeded++;
+            }
+            else
+            {
+                failed++;
+                await SaveInventoryImportRowAsync(batchId, row, null, rowError, cancellationToken);
+            }
+        }
+
+        _db.ChangeTracker.Clear();
+        var savedBatch = await _db.ImportBatches.FirstAsync(b => b.Id == batchId, cancellationToken);
+        savedBatch.SuccessfulRows = succeeded;
+        savedBatch.FailedRows = failed;
+        savedBatch.Status = failed == 0
+            ? ImportStatus.Completed
+            : succeeded == 0
+                ? ImportStatus.Failed
+                : ImportStatus.CompletedWithErrors;
+        savedBatch.CompletedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(cancellationToken);
+        return Result.Success((await GetBatchAsync(batchId, cancellationToken))!);
+    }
+
+    private async Task SaveInventoryImportRowAsync(
+        int batchId,
+        ParsedInventoryImportRow row,
+        int? productId,
+        string? error,
+        CancellationToken cancellationToken)
+    {
+        _db.ChangeTracker.Clear();
+        _db.ImportRows.Add(new ImportRow
+        {
+            BatchId = batchId,
+            RowNumber = row.RowNumber,
+            RowData = row.RowData,
+            Status = error is null ? ImportRowStatus.Success : ImportRowStatus.Failed,
+            ProductId = productId,
+            ErrorMessage = error is null ? null : Truncate(error, 2000),
+            ProcessedAt = DateTime.UtcNow
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static ParsedInventoryImportRow ParseInventoryRow(int rowNumber, string[] headers, string[] cells)
+    {
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < headers.Length; i++)
+        {
+            values[headers[i]] = CsvUtil.SanitizeCell(i < cells.Length ? cells[i] : string.Empty);
+        }
+
+        string? Value(string name) =>
+            values.TryGetValue(name, out var value) && !string.IsNullOrWhiteSpace(value)
+                ? value.Trim().TrimStart('\'')
+                : null;
+
+        var row = new ParsedInventoryImportRow
+        {
+            RowNumber = rowNumber,
+            RowData = JsonSerializer.Serialize(values),
+            Sku = Value("Sku"),
+            WarehouseCode = Value("WarehouseCode"),
+            ProductName = Value("ProductName"),
+            VariantName = Value("VariantName"),
+            CategorySlug = Value("CategorySlug"),
+            BrandName = Value("BrandName"),
+            Barcode = Value("Barcode")
+        };
+
+        if (cells.Skip(headers.Length).Any(c => !string.IsNullOrWhiteSpace(c)))
+        {
+            row.AddError("Row contains values without matching CSV headers.");
+        }
+
+        if (string.IsNullOrWhiteSpace(row.Sku) || row.Sku.Length > 100)
+        {
+            row.AddError("Sku is required and must be at most 100 characters.");
+        }
+
+        if (string.IsNullOrWhiteSpace(row.WarehouseCode) || row.WarehouseCode.Length > 50)
+        {
+            row.AddError("WarehouseCode is required and must be at most 50 characters.");
+        }
+
+        if (!int.TryParse(Value("QuantityOnHand"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var quantity) || quantity < 0)
+        {
+            row.AddError("QuantityOnHand must be a non-negative integer.");
+        }
+        else
+        {
+            row.QuantityOnHand = quantity;
+        }
+
+        if (row.ProductName?.Length > 300)
+        {
+            row.AddError("ProductName must be at most 300 characters.");
+        }
+
+        if (row.VariantName?.Length > 200)
+        {
+            row.AddError("VariantName must be at most 200 characters.");
+        }
+
+        if (row.Barcode?.Length > 100)
+        {
+            row.AddError("Barcode must be at most 100 characters.");
+        }
+
+        if (Value("PurchasePrice") is { } purchasePrice)
+        {
+            if (!TryParseDecimal(purchasePrice, out var parsedPrice) || parsedPrice < 0)
+            {
+                row.AddError("PurchasePrice must be a non-negative number.");
+            }
+            else
+            {
+                row.PurchasePrice = parsedPrice;
+            }
+        }
+
+        if (Value("SellingPrice") is { } sellingPrice)
+        {
+            if (!TryParseDecimal(sellingPrice, out var parsedPrice) || parsedPrice < 0)
+            {
+                row.AddError("SellingPrice must be a non-negative number.");
+            }
+            else
+            {
+                row.SellingPrice = parsedPrice;
+            }
+        }
+
+        if (Value("IsActive") is { } active)
+        {
+            if (!TryParseBool(active, out var parsedActive))
+            {
+                row.AddError("IsActive must be true/false, 1/0, yes/no, or y/n.");
+            }
+            else
+            {
+                row.IsActive = parsedActive;
+            }
+        }
+
+        return row;
     }
 
     public async Task<ImportBatchDto?> GetBatchAsync(int batchId, CancellationToken cancellationToken = default)
@@ -628,6 +1015,26 @@ public class CatalogImportService : ICatalogImportService
         public int? BrandId { get; set; }
         public bool SkuExists { get; set; }
         public int? ExistingProductId { get; set; }
+        public List<string> Errors { get; } = [];
+
+        public void AddError(string error) => Errors.Add(error);
+    }
+
+    private sealed class ParsedInventoryImportRow
+    {
+        public int RowNumber { get; init; }
+        public string RowData { get; init; } = string.Empty;
+        public string? Sku { get; init; }
+        public string? WarehouseCode { get; init; }
+        public int QuantityOnHand { get; set; }
+        public string? ProductName { get; init; }
+        public string? VariantName { get; init; }
+        public string? CategorySlug { get; init; }
+        public string? BrandName { get; init; }
+        public string? Barcode { get; init; }
+        public decimal? PurchasePrice { get; set; }
+        public decimal? SellingPrice { get; set; }
+        public bool? IsActive { get; set; }
         public List<string> Errors { get; } = [];
 
         public void AddError(string error) => Errors.Add(error);

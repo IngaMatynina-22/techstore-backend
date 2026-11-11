@@ -17,6 +17,14 @@ public interface IInventoryService
     Task<Result<StockOperationResultDto>> ReceiveAsync(ReceiptRequest request, int? userId, CancellationToken cancellationToken = default);
     Task<Result<StockOperationResultDto>> IssueAsync(IssueRequest request, int? userId, CancellationToken cancellationToken = default);
     Task<Result<StockOperationResultDto>> AdjustAsync(AdjustmentRequest request, int? userId, CancellationToken cancellationToken = default);
+    /// <summary>Sets the on-hand quantity and writes its movement within the caller's transaction.</summary>
+    Task<Result> AdjustToQuantityInAmbientTransactionAsync(
+        int warehouseId,
+        int variantId,
+        int targetQuantityOnHand,
+        string reason,
+        int? userId,
+        CancellationToken cancellationToken = default);
     Task<Result<TransferOperationResultDto>> TransferAsync(TransferRequest request, int? userId, CancellationToken cancellationToken = default);
 
     /// <summary>Mutates reserved stock; caller owns the transaction.</summary>

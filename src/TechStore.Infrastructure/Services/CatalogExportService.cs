@@ -146,7 +146,7 @@ public class CatalogExportService : ICatalogExportService
                 o.CustomerName,
                 o.CustomerEmail,
                 o.CustomerPhone,
-                WarehouseCode = o.Warehouse.Code,
+                WarehouseCode = o.Warehouse == null ? null : o.Warehouse.Code,
                 DeliveryMethod = o.DeliveryMethod.ToString(),
                 o.Subtotal,
                 o.DiscountAmount,

@@ -312,6 +312,68 @@ public class OrderServiceTests
     }
 
     [Fact]
+    public async Task CustomerOrder_IsUnassignedUntilStaffAssignsWarehouse()
+    {
+        var fx = await CreateFixtureAsync(5);
+        await using var _ = fx.Db;
+
+        var created = await fx.Orders.CreateAsync(new CreateOrderRequest
+        {
+            WarehouseId = fx.WarehouseId,
+            CustomerId = 999999,
+            Items = [new CreateOrderItemRequest { ProductVariantId = fx.VariantId, Quantity = 2 }]
+        }, fx.CustomerActor);
+
+        Assert.True(created.IsSuccess);
+        Assert.Null(created.Value!.WarehouseId);
+        Assert.False(created.Value.HasActiveReservation);
+
+        var unassignedConfirm = await fx.Orders.ConfirmAsync(created.Value.Id, fx.Staff);
+        Assert.True(unassignedConfirm.IsFailure);
+        Assert.Equal(ResultCodes.InvalidTransition, unassignedConfirm.Code);
+
+        var customerAssignment = await fx.Orders.AssignWarehouseAsync(created.Value.Id, fx.WarehouseId, fx.CustomerActor);
+        Assert.True(customerAssignment.IsFailure);
+        Assert.Equal(ResultCodes.Forbidden, customerAssignment.Code);
+
+        var assigned = await fx.Orders.AssignWarehouseAsync(created.Value.Id, fx.WarehouseId, fx.Staff);
+        Assert.True(assigned.IsSuccess);
+        Assert.Equal(fx.WarehouseId, assigned.Value!.WarehouseId);
+        Assert.True(assigned.Value.HasActiveReservation);
+
+        var stock = await fx.Inventory.GetAsync(fx.WarehouseId, fx.VariantId);
+        Assert.Equal(2, stock!.QuantityReserved);
+
+        var confirmed = await fx.Orders.ConfirmAsync(created.Value.Id, fx.Staff);
+        Assert.True(confirmed.IsSuccess);
+        Assert.Equal(OrderStatusCodes.Confirmed, confirmed.Value!.StatusCode);
+    }
+
+    [Fact]
+    public async Task StaffCannotAssignOrderWithoutSufficientStock()
+    {
+        var fx = await CreateFixtureAsync(0);
+        await using var _ = fx.Db;
+
+        var created = await fx.Orders.CreateAsync(new CreateOrderRequest
+        {
+            CustomerId = fx.CustomerId,
+            Items = [new CreateOrderItemRequest { ProductVariantId = fx.VariantId, Quantity = 1 }]
+        }, fx.Staff);
+
+        Assert.True(created.IsSuccess);
+        Assert.Null(created.Value!.WarehouseId);
+
+        var assigned = await fx.Orders.AssignWarehouseAsync(created.Value.Id, fx.WarehouseId, fx.Staff);
+        Assert.True(assigned.IsFailure);
+        Assert.Equal(ResultCodes.InsufficientStock, assigned.Code);
+
+        var unchanged = await fx.Orders.GetByIdAsync(created.Value.Id, fx.Staff);
+        Assert.Null(unchanged!.WarehouseId);
+        Assert.False(unchanged.HasActiveReservation);
+    }
+
+    [Fact]
     public async Task InvalidTransition_IsRejected()
     {
         var fx = await CreateFixtureAsync(5);

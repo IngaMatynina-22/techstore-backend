@@ -50,6 +50,38 @@ public class ImportsController : ApiControllerBase
             : FromResult(result);
     }
 
+    [HttpPost("inventory")]
+    [RequestSizeLimit(3 * 1024 * 1024)]
+    public async Task<IActionResult> ImportInventory(
+        IFormFile file,
+        CancellationToken cancellationToken = default)
+    {
+        if (file is null || file.Length == 0)
+        {
+            return Problem(
+                detail: "CSV file is required.",
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "validation");
+        }
+
+        if (CurrentUserId is null)
+        {
+            return Unauthorized();
+        }
+
+        await using var stream = file.OpenReadStream();
+        var result = await _imports.ImportInventoryAsync(
+            stream,
+            file.FileName,
+            file.Length,
+            CurrentUserId.Value,
+            cancellationToken);
+
+        return result.IsSuccess
+            ? Ok(result.Value)
+            : FromResult(result);
+    }
+
     [HttpGet("{batchId:int}")]
     public async Task<IActionResult> GetBatch(int batchId, CancellationToken cancellationToken)
     {

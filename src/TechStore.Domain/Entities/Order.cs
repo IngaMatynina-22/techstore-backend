@@ -13,7 +13,7 @@ public class Order : AuditableEntity
     /// <summary>
     /// Fulfillment warehouse used for reservation and stock deduction (Phase 4 policy: single warehouse per order).
     /// </summary>
-    public int WarehouseId { get; set; }
+    public int? WarehouseId { get; set; }
 
     public int? ShippingAddressId { get; set; }
     public string CustomerName { get; set; } = string.Empty;
@@ -35,7 +35,7 @@ public class Order : AuditableEntity
     public DateTime? CancelledAt { get; set; }
 
     public Customer Customer { get; set; } = null!;
-    public Warehouse Warehouse { get; set; } = null!;
+    public Warehouse? Warehouse { get; set; }
     public CustomerAddress? ShippingAddress { get; set; }
     public OrderStatus Status { get; set; } = null!;
     public ICollection<OrderItem> Items { get; set; } = [];

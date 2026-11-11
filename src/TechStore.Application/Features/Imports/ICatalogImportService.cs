@@ -12,5 +12,12 @@ public interface ICatalogImportService
         int userId,
         CancellationToken cancellationToken = default);
 
+    Task<Result<ImportBatchDto>> ImportInventoryAsync(
+        Stream fileStream,
+        string fileName,
+        long fileLength,
+        int userId,
+        CancellationToken cancellationToken = default);
+
     Task<ImportBatchDto?> GetBatchAsync(int batchId, CancellationToken cancellationToken = default);
 }

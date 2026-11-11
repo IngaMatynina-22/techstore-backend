@@ -88,6 +88,8 @@ Or set `"Database": { "SeedDemoData": true }` and start the app normally (seeds 
 
 **Phase 4 — `OrderReservationAndCustomerUserLink`:** `Customers.UserId` (unique filtered), `Orders.WarehouseId`, `ShippingAddressId`, `HasActiveReservation`, table `OrderOperationIdempotency` (unique per user + key).
 
+**`ManagerWarehouseAndUkCategories`:** makes an order's warehouse optional until staff assigns it, and translates the seeded demo categories into Ukrainian.
+
 ## Run
 
 ```powershell
@@ -309,13 +311,13 @@ Problem Details style responses via `ApiControllerBase` / `AddProblemDetails()`.
 
 ### Warehouse policy
 
-Each order targets a **single fulfillment warehouse** (`warehouseId` required on create). All line reservations and fulfillment use that warehouse. Multi-warehouse split shipping is out of scope.
+Each order targets a **single fulfillment warehouse**. Customer-created orders are initially unassigned and have no stock reservation; staff must choose the warehouse after reviewing the order. Staff-created orders may include `warehouseId` to assign and reserve stock immediately. Multi-warehouse split shipping is out of scope.
 
 ### Available quantity
 
 `Available = QuantityOnHand - QuantityReserved`
 
-Create order atomically reserves all lines. If any line fails, prior reserves are released and the draft order is discarded (no partial order).
+Warehouse assignment atomically reserves all lines. If any line fails, prior reserves are released and the order remains unassigned. A manager must assign a warehouse with sufficient stock before confirming the order.
 
 ### Duplicate lines
 
@@ -339,6 +341,7 @@ Unit prices come from `ProductVariant.SellingPrice` on the server. Snapshots are
 API shortcuts:
 
 - `POST .../confirm` — New → Confirmed
+- `POST .../{id}/warehouse` — staff assigns an active warehouse and reserves every line
 - `POST .../start-processing` — Confirmed → Processing
 - `POST .../complete` — Processing|ReadyForShipment → Completed **and** fulfill stock
 - `POST .../cancel` — release reservation once (idempotent if already Cancelled)
@@ -366,6 +369,7 @@ Optional `idempotencyKey` on create, unique per `(UserId, IdempotencyKey)`:
 | GET | `/api/orders/{id}` | owner or staff |
 | GET | `/api/orders/{id}/items` | owner or staff |
 | GET | `/api/orders/{id}/history` | owner or staff |
+| POST | `/api/orders/{id}/warehouse` | Admin, Manager |
 | POST | `/api/orders/{id}/confirm` | Admin, Manager |
 | POST | `/api/orders/{id}/start-processing` | Admin, Manager |
 | POST | `/api/orders/{id}/complete` | Admin, Manager |
@@ -421,11 +425,21 @@ LocalDB concurrency DBs: `TechStore_InvConcurrency_*`, `TechStore_OrdConcurrency
 6. Payments/Shipments entities exist but are not integrated in Phase 4 (no fake payments/carriers).
 7. Returned status exists in seed but has no API transition yet.
 
+## Supplier inventory import
+
+Managers and administrators can upload supplier CSV files to `POST /api/imports/inventory` as multipart form-data (`file`).
+The import matches an existing product variant by SKU, applies the supplied on-hand quantity to the specified active warehouse,
+and optionally updates catalog fields. Each row is processed independently and recorded in the import batch; stock changes
+create adjustment movements and cannot reduce stock below the reserved quantity. CSV files are limited to 2 MB and 5,000 rows.
+
+Required headers: `Sku,WarehouseCode,QuantityOnHand`.
+Optional headers: `ProductName,VariantName,CategorySlug,BrandName,PurchasePrice,SellingPrice,Barcode,IsActive`.
+Optional values left blank are not changed. `CategorySlug` and `BrandName` must match existing records. Quantities are non-negative
+integers; prices use invariant decimal notation (for example `1299.95`). The import updates existing SKUs only and does not create products.
+
 ## Next milestones
 
 - Multi-warehouse allocation / reservation ledger per line
 - Returns (`Returned`) with stock restock
 - Payment and shipment workflows
-- CSV import pipeline
 - JWT if non-cookie clients are required
-

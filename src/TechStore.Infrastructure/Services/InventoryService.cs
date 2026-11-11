@@ -419,6 +419,92 @@ public class InventoryService : IInventoryService
             cancellationToken);
     }
 
+    public async Task<Result> AdjustToQuantityInAmbientTransactionAsync(
+        int warehouseId,
+        int variantId,
+        int targetQuantityOnHand,
+        string reason,
+        int? userId,
+        CancellationToken cancellationToken = default)
+    {
+        if (targetQuantityOnHand < 0)
+        {
+            return Result.Failure("Target quantity cannot be negative.");
+        }
+
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return Result.Failure("Adjustment reason is required.");
+        }
+
+        var validation = await ValidateWarehouseAndVariantAsync(
+            warehouseId,
+            variantId,
+            requireActiveWarehouse: true,
+            requireActiveVariant: false,
+            cancellationToken);
+        if (validation.IsFailure)
+        {
+            return validation;
+        }
+
+        var item = await _db.Inventory.FirstOrDefaultAsync(
+            i => i.WarehouseId == warehouseId && i.VariantId == variantId,
+            cancellationToken);
+        if (item is null && targetQuantityOnHand == 0)
+        {
+            return Result.Success();
+        }
+
+        var now = DateTime.UtcNow;
+        item ??= await GetOrCreateInventoryAsync(warehouseId, variantId, now, cancellationToken);
+        if (targetQuantityOnHand < item.QuantityReserved)
+        {
+            return Result.Conflict("Target quantity cannot be less than reserved quantity.", ResultCodes.InsufficientStock);
+        }
+
+        var before = item.QuantityOnHand;
+        var delta = InventoryRules.ComputeAdjustmentDelta(before, targetQuantityOnHand);
+        if (delta == 0)
+        {
+            return Result.Success();
+        }
+
+        var affected = await ApplyAbsoluteQuantityAsync(
+            item.Id,
+            before,
+            targetQuantityOnHand,
+            now,
+            cancellationToken);
+        if (affected == 0)
+        {
+            return Result.Conflict("Inventory was changed by another operation. Retry the adjustment.", ResultCodes.ConcurrencyConflict);
+        }
+
+        _db.StockMovements.Add(new StockMovement
+        {
+            WarehouseId = warehouseId,
+            VariantId = variantId,
+            UserId = userId,
+            MovementType = StockMovementType.Adjustment,
+            Quantity = delta,
+            QuantityBefore = before,
+            QuantityAfter = targetQuantityOnHand,
+            ReferenceType = "InventoryImport",
+            Comment = reason.Trim(),
+            CreatedAt = now
+        });
+        await WriteAuditAsync(
+            userId,
+            "InventoryItem",
+            item.Id.ToString(),
+            AuditAction.Update,
+            $"Supplier import adjustment {before}->{targetQuantityOnHand}",
+            cancellationToken);
+        await _db.SaveChangesAsync(cancellationToken);
+        return Result.Success();
+    }
+
     public async Task<Result<TransferOperationResultDto>> TransferAsync(
         TransferRequest request,
         int? userId,
@@ -729,8 +815,8 @@ public class InventoryService : IInventoryService
         }
 
         var activeReservedOrders = await _db.Orders.AsNoTracking()
-            .Where(o => o.HasActiveReservation)
-            .Select(o => new { o.Id, o.WarehouseId, ReservedUnits = o.Items.Sum(i => i.Quantity) })
+            .Where(o => o.HasActiveReservation && o.WarehouseId.HasValue)
+            .Select(o => new { o.Id, WarehouseId = o.WarehouseId!.Value, ReservedUnits = o.Items.Sum(i => i.Quantity) })
             .ToListAsync(cancellationToken);
 
         var warehouseReserved = await _db.Inventory.AsNoTracking()

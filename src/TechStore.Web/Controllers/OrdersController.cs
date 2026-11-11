@@ -59,6 +59,14 @@ public class OrdersController : ApiControllerBase
     }
 
     [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
+    [HttpPost("{id:int}/warehouse")]
+    public async Task<IActionResult> AssignWarehouse(
+        int id,
+        [FromBody] AssignOrderWarehouseRequest request,
+        CancellationToken cancellationToken)
+        => FromResult(await _orders.AssignWarehouseAsync(id, request.WarehouseId, BuildActor(), cancellationToken));
+
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Manager}")]
     [HttpPost("{id:int}/confirm")]
     public async Task<IActionResult> Confirm(int id, CancellationToken cancellationToken)
         => FromResult(await _orders.ConfirmAsync(id, BuildActor(), cancellationToken));

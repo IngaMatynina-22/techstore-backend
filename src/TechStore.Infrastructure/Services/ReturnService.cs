@@ -87,6 +87,14 @@ public class ReturnService : IReturnService
                     return Result.Failure<ReturnDetailsDto>("Not authorized to create a return for this order.", ResultCodes.Forbidden);
                 }
 
+                if (!order.WarehouseId.HasValue)
+                {
+                    await tx.RollbackAsync(cancellationToken);
+                    return Result.Conflict<ReturnDetailsDto>(
+                        "A warehouse must be assigned before a return can be created.",
+                        ResultCodes.InvalidTransition);
+                }
+
                 var orderItemMap = order.Items.ToDictionary(i => i.Id);
                 foreach (var line in aggregated)
                 {
@@ -117,7 +125,7 @@ public class ReturnService : IReturnService
                     ReturnNumber = returnNumber,
                     OrderId = order.Id,
                     CustomerId = order.CustomerId,
-                    WarehouseId = order.WarehouseId,
+                    WarehouseId = order.WarehouseId.Value,
                     Status = ReturnRequestStatus.Requested,
                     CustomerComment = comment,
                     RequestedByUserId = actor.UserId,
