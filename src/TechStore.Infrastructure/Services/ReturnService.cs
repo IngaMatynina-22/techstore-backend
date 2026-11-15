@@ -87,14 +87,6 @@ public class ReturnService : IReturnService
                     return Result.Failure<ReturnDetailsDto>("Not authorized to create a return for this order.", ResultCodes.Forbidden);
                 }
 
-                if (!order.WarehouseId.HasValue)
-                {
-                    await tx.RollbackAsync(cancellationToken);
-                    return Result.Conflict<ReturnDetailsDto>(
-                        "A warehouse must be assigned before a return can be created.",
-                        ResultCodes.InvalidTransition);
-                }
-
                 var orderItemMap = order.Items.ToDictionary(i => i.Id);
                 foreach (var line in aggregated)
                 {
@@ -103,6 +95,14 @@ public class ReturnService : IReturnService
                         await tx.RollbackAsync(cancellationToken);
                         return Result.NotFound<ReturnDetailsDto>(
                             $"Order item {line.OrderItemId} was not found on this order.");
+                    }
+
+                    if (!(orderItem.WarehouseId ?? order.WarehouseId).HasValue)
+                    {
+                        await tx.RollbackAsync(cancellationToken);
+                        return Result.Conflict<ReturnDetailsDto>(
+                            $"A warehouse must be assigned to order item {line.OrderItemId} before a return can be created.",
+                            ResultCodes.InvalidTransition);
                     }
 
                     var alreadyReturned = await GetAlreadyReturnedQuantityAsync(line.OrderItemId, cancellationToken);
@@ -119,13 +119,17 @@ public class ReturnService : IReturnService
                 var now = DateTime.UtcNow;
                 var returnNumber = $"RET-{now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..50];
                 var comment = Normalize(request.Comment);
+                var returnWarehouseIds = aggregated
+                    .Select(line => orderItemMap[line.OrderItemId].WarehouseId ?? order.WarehouseId!.Value)
+                    .Distinct()
+                    .ToList();
 
                 var entity = new ReturnRequest
                 {
                     ReturnNumber = returnNumber,
                     OrderId = order.Id,
                     CustomerId = order.CustomerId,
-                    WarehouseId = order.WarehouseId.Value,
+                    WarehouseId = returnWarehouseIds.Count == 1 ? returnWarehouseIds[0] : null,
                     Status = ReturnRequestStatus.Requested,
                     CustomerComment = comment,
                     RequestedByUserId = actor.UserId,
@@ -140,6 +144,7 @@ public class ReturnService : IReturnService
                     entity.Items.Add(new ReturnItem
                     {
                         OrderItemId = orderItem.Id,
+                        WarehouseId = orderItem.WarehouseId ?? order.WarehouseId!.Value,
                         VariantId = orderItem.VariantId,
                         SkuSnapshot = orderItem.Sku,
                         ProductNameSnapshot = string.IsNullOrWhiteSpace(orderItem.VariantName)
@@ -454,7 +459,7 @@ public class ReturnService : IReturnService
                     }
 
                     var receipt = await _inventory.ApplyReceiptInAmbientTransactionAsync(
-                        entity.WarehouseId,
+                        item.WarehouseId,
                         item.VariantId.Value,
                         item.Quantity,
                         unitCost: null,
@@ -692,6 +697,7 @@ public class ReturnService : IReturnService
             .Select(i => new ReturnItemDto(
                 i.Id,
                 i.OrderItemId,
+                i.WarehouseId,
                 i.VariantId,
                 i.SkuSnapshot,
                 i.ProductNameSnapshot,

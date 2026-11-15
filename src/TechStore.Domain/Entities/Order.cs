@@ -11,7 +11,7 @@ public class Order : AuditableEntity
     public int StatusId { get; set; }
 
     /// <summary>
-    /// Fulfillment warehouse used for reservation and stock deduction (Phase 4 policy: single warehouse per order).
+    /// Set when every order item is fulfilled from the same warehouse; mixed-warehouse orders leave it null.
     /// </summary>
     public int? WarehouseId { get; set; }
 

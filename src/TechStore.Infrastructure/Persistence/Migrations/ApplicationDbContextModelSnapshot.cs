@@ -983,6 +983,9 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                     b.Property<int?>("VariantId")
                         .HasColumnType("int");
 
+                    b.Property<int?>("WarehouseId")
+                        .HasColumnType("int");
+
                     b.Property<string>("VariantName")
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
@@ -994,6 +997,8 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                     b.HasIndex("Sku");
 
                     b.HasIndex("VariantId");
+
+                    b.HasIndex("WarehouseId");
 
                     b.ToTable("OrderItems", null, t =>
                         {
@@ -1621,6 +1626,9 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                     b.Property<int>("ReturnRequestId")
                         .HasColumnType("int");
 
+                    b.Property<int>("WarehouseId")
+                        .HasColumnType("int");
+
                     b.Property<string>("SkuSnapshot")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -1638,6 +1646,8 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                     b.HasIndex("OrderItemId");
 
                     b.HasIndex("VariantId");
+
+                    b.HasIndex("WarehouseId");
 
                     b.HasIndex("ReturnRequestId", "OrderItemId")
                         .IsUnique();
@@ -1711,7 +1721,7 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<int>("WarehouseId")
+                    b.Property<int?>("WarehouseId")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
@@ -2533,9 +2543,16 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                         .HasForeignKey("VariantId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("TechStore.Domain.Entities.Warehouse", "Warehouse")
+                        .WithMany()
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Order");
 
                     b.Navigation("Variant");
+
+                    b.Navigation("Warehouse");
                 });
 
             modelBuilder.Entity("TechStore.Domain.Entities.OrderOperationIdempotency", b =>
@@ -2731,9 +2748,17 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("TechStore.Domain.Entities.Warehouse", "Warehouse")
+                        .WithMany()
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.Navigation("OrderItem");
 
                     b.Navigation("ReturnRequest");
+
+                    b.Navigation("Warehouse");
                 });
 
             modelBuilder.Entity("TechStore.Domain.Entities.ReturnRequest", b =>
@@ -2763,8 +2788,7 @@ namespace TechStore.Infrastructure.Persistence.Migrations
                     b.HasOne("TechStore.Domain.Entities.Warehouse", "Warehouse")
                         .WithMany()
                         .HasForeignKey("WarehouseId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Customer");
 

@@ -49,20 +49,89 @@ internal static class CsvUtil
         CancellationToken cancellationToken)
     {
         using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: true);
+        var content = await reader.ReadToEndAsync(cancellationToken);
         var rows = new List<string[]>();
-        string? line;
-        while ((line = await reader.ReadLineAsync(cancellationToken)) is not null)
+        var fields = new List<string>();
+        var field = new StringBuilder();
+        var inQuotes = false;
+
+        void CompleteField()
         {
-            if (string.IsNullOrWhiteSpace(line))
+            fields.Add(field.ToString());
+            field.Clear();
+        }
+
+        void CompleteRow()
+        {
+            CompleteField();
+            if (fields.Any(value => !string.IsNullOrWhiteSpace(value)))
             {
+                rows.Add(fields.ToArray());
+            }
+
+            fields.Clear();
+        }
+
+        for (var index = 0; index < content.Length; index++)
+        {
+            var character = content[index];
+            if (inQuotes)
+            {
+                if (character == '"')
+                {
+                    if (index + 1 < content.Length && content[index + 1] == '"')
+                    {
+                        field.Append('"');
+                        index++;
+                    }
+                    else
+                    {
+                        inQuotes = false;
+                    }
+                }
+                else
+                {
+                    field.Append(character);
+                }
+
                 continue;
             }
 
-            rows.Add(ParseLine(line));
+            if (character == '"')
+            {
+                inQuotes = true;
+            }
+            else if (character == ',')
+            {
+                CompleteField();
+            }
+            else if (character is '\r' or '\n')
+            {
+                CompleteRow();
+                if (character == '\r' && index + 1 < content.Length && content[index + 1] == '\n')
+                {
+                    index++;
+                }
+            }
+            else
+            {
+                field.Append(character);
+            }
+
             if (rows.Count > MaxImportRows + 1)
             {
                 break;
             }
+        }
+
+        if (inQuotes)
+        {
+            throw new InvalidDataException("CSV contains an unterminated quoted field.");
+        }
+
+        if (fields.Count > 0 || field.Length > 0)
+        {
+            CompleteRow();
         }
 
         return rows;

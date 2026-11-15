@@ -8,7 +8,7 @@ public class ReturnRequest : AuditableEntity
     public string ReturnNumber { get; set; } = string.Empty;
     public int OrderId { get; set; }
     public int CustomerId { get; set; }
-    public int WarehouseId { get; set; }
+    public int? WarehouseId { get; set; }
     public ReturnRequestStatus Status { get; set; } = ReturnRequestStatus.Requested;
     public string? CustomerComment { get; set; }
     public string? StaffComment { get; set; }
@@ -22,7 +22,7 @@ public class ReturnRequest : AuditableEntity
 
     public Order Order { get; set; } = null!;
     public Customer Customer { get; set; } = null!;
-    public Warehouse Warehouse { get; set; } = null!;
+    public Warehouse? Warehouse { get; set; }
     public ICollection<ReturnItem> Items { get; set; } = [];
     public ICollection<ReturnStatusHistory> StatusHistory { get; set; } = [];
 }

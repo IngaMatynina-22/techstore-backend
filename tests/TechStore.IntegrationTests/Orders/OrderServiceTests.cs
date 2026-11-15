@@ -409,6 +409,137 @@ public class OrderServiceTests
     }
 
     [Fact]
+    public async Task Create_ReservesAndFulfillsLinesFromDifferentWarehouses()
+    {
+        var fx = await CreateFixtureAsync(10);
+        await using var _ = fx.Db;
+        var warehouseService = new WarehouseService(fx.Db);
+        var secondWarehouse = await warehouseService.CreateAsync(new CreateWarehouseRequest
+        {
+            Name = "Second",
+            Code = "S" + Guid.NewGuid().ToString("N")[..5]
+        });
+        await fx.Inventory.ReceiveAsync(new ReceiptRequest
+        {
+            WarehouseId = secondWarehouse.Value!.Id,
+            VariantId = fx.VariantId,
+            Quantity = 10
+        }, null);
+
+        var created = await fx.Orders.CreateAsync(new CreateOrderRequest
+        {
+            CustomerId = fx.CustomerId,
+            Items =
+            [
+                new CreateOrderItemRequest
+                {
+                    ProductVariantId = fx.VariantId,
+                    Quantity = 2,
+                    WarehouseId = fx.WarehouseId
+                },
+                new CreateOrderItemRequest
+                {
+                    ProductVariantId = fx.VariantId,
+                    Quantity = 3,
+                    WarehouseId = secondWarehouse.Value.Id
+                }
+            ]
+        }, fx.Staff);
+
+        Assert.True(created.IsSuccess);
+        Assert.Null(created.Value!.WarehouseId);
+        Assert.True(created.Value.HasActiveReservation);
+        Assert.Equal(2, created.Value.Items.Count);
+        Assert.Contains(created.Value.Items, item => item.WarehouseId == fx.WarehouseId && item.Quantity == 2);
+        Assert.Contains(created.Value.Items, item => item.WarehouseId == secondWarehouse.Value.Id && item.Quantity == 3);
+
+        Assert.Equal(2, (await fx.Inventory.GetAsync(fx.WarehouseId, fx.VariantId))!.QuantityReserved);
+        Assert.Equal(3, (await fx.Inventory.GetAsync(secondWarehouse.Value.Id, fx.VariantId))!.QuantityReserved);
+
+        Assert.True((await fx.Orders.ConfirmAsync(created.Value.Id, fx.Staff)).IsSuccess);
+        Assert.True((await fx.Orders.StartProcessingAsync(created.Value.Id, fx.Staff)).IsSuccess);
+        var completed = await fx.Orders.CompleteAsync(created.Value.Id, fx.Staff);
+
+        Assert.True(completed.IsSuccess);
+        Assert.Equal(8, (await fx.Inventory.GetAsync(fx.WarehouseId, fx.VariantId))!.QuantityOnHand);
+        Assert.Equal(7, (await fx.Inventory.GetAsync(secondWarehouse.Value.Id, fx.VariantId))!.QuantityOnHand);
+        Assert.Equal(0, (await fx.Inventory.GetAsync(fx.WarehouseId, fx.VariantId))!.QuantityReserved);
+        Assert.Equal(0, (await fx.Inventory.GetAsync(secondWarehouse.Value.Id, fx.VariantId))!.QuantityReserved);
+    }
+
+    [Fact]
+    public async Task AssignWarehouses_ReservesEachOrderItemAtItsSelectedWarehouse()
+    {
+        var fx = await CreateFixtureAsync(5);
+        await using var _ = fx.Db;
+        var categories = new CategoryService(fx.Db);
+        var products = new ProductService(fx.Db);
+        var category = await categories.CreateAsync(new CreateCategoryRequest
+        {
+            Name = "Warehouse allocation",
+            Slug = "warehouse-allocation-" + Guid.NewGuid().ToString("N")[..8]
+        });
+        var product = await products.CreateAsync(new CreateProductRequest
+        {
+            Name = "Second warehouse item",
+            CategoryId = category.Value!,
+            Variants =
+            [
+                new ProductVariantInput
+                {
+                    Sku = "WH-" + Guid.NewGuid().ToString("N")[..8],
+                    VariantName = "Default",
+                    PurchasePrice = 10,
+                    SellingPrice = 20
+                }
+            ]
+        }, null);
+        var secondVariantId = (await products.GetByIdAsync(product.Value!))!.Variants.Single().Id;
+        var warehouse = await new WarehouseService(fx.Db).CreateAsync(new CreateWarehouseRequest
+        {
+            Name = "Second allocation warehouse",
+            Code = "WA-" + Guid.NewGuid().ToString("N")[..5]
+        });
+        await fx.Inventory.ReceiveAsync(new ReceiptRequest
+        {
+            WarehouseId = warehouse.Value!.Id,
+            VariantId = secondVariantId,
+            Quantity = 5
+        }, null);
+
+        var created = await fx.Orders.CreateAsync(new CreateOrderRequest
+        {
+            CustomerId = fx.CustomerId,
+            Items =
+            [
+                new CreateOrderItemRequest { ProductVariantId = fx.VariantId, Quantity = 2 },
+                new CreateOrderItemRequest { ProductVariantId = secondVariantId, Quantity = 1 }
+            ]
+        }, fx.Staff);
+        Assert.True(created.IsSuccess);
+
+        var assignments = created.Value!.Items.Select(item => new OrderItemWarehouseAssignment
+        {
+            OrderItemId = item.Id,
+            WarehouseId = item.VariantId == fx.VariantId ? fx.WarehouseId : warehouse.Value.Id
+        }).ToList();
+        var assigned = await fx.Orders.AssignWarehousesAsync(
+            created.Value.Id,
+            new AssignOrderWarehousesRequest { Items = assignments },
+            fx.Staff);
+
+        Assert.True(assigned.IsSuccess);
+        Assert.Null(assigned.Value!.WarehouseId);
+        Assert.True(assigned.Value.HasActiveReservation);
+        Assert.Equal(2, (await fx.Inventory.GetAsync(fx.WarehouseId, fx.VariantId))!.QuantityReserved);
+        Assert.Equal(1, (await fx.Inventory.GetAsync(warehouse.Value.Id, secondVariantId))!.QuantityReserved);
+
+        Assert.True((await fx.Orders.CancelAsync(created.Value.Id, fx.Staff)).IsSuccess);
+        Assert.Equal(0, (await fx.Inventory.GetAsync(fx.WarehouseId, fx.VariantId))!.QuantityReserved);
+        Assert.Equal(0, (await fx.Inventory.GetAsync(warehouse.Value.Id, secondVariantId))!.QuantityReserved);
+    }
+
+    [Fact]
     public async Task ConcurrentReservations_DoNotOversell_OnSqlServer()
     {
         var dbName = "TechStore_OrdConcurrency_" + Guid.NewGuid().ToString("N");

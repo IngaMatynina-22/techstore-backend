@@ -25,6 +25,15 @@ public class ExportsController : ApiControllerBase
             : FromResult(result);
     }
 
+    [HttpGet("suppliers")]
+    public async Task<IActionResult> ExportSuppliers(CancellationToken cancellationToken)
+    {
+        var result = await _exports.ExportSuppliersAsync(cancellationToken);
+        return result.IsSuccess
+            ? File(result.Value!.Content, result.Value.ContentType, result.Value.FileName)
+            : FromResult(result);
+    }
+
     [HttpGet("inventory")]
     public async Task<IActionResult> ExportInventory(
         [FromQuery] int? warehouseId,

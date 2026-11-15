@@ -7,6 +7,7 @@ public class ReturnItem : BaseEntity
 {
     public int ReturnRequestId { get; set; }
     public int OrderItemId { get; set; }
+    public int WarehouseId { get; set; }
     public int? VariantId { get; set; }
     public string SkuSnapshot { get; set; } = string.Empty;
     public string ProductNameSnapshot { get; set; } = string.Empty;
@@ -18,4 +19,5 @@ public class ReturnItem : BaseEntity
 
     public ReturnRequest ReturnRequest { get; set; } = null!;
     public OrderItem OrderItem { get; set; } = null!;
+    public Warehouse Warehouse { get; set; } = null!;
 }

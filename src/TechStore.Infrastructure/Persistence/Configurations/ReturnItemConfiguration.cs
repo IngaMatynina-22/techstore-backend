@@ -26,11 +26,18 @@ public class ReturnItemConfiguration : IEntityTypeConfiguration<ReturnItem>
 
         builder.HasIndex(x => new { x.ReturnRequestId, x.OrderItemId }).IsUnique();
         builder.HasIndex(x => x.OrderItemId);
+        builder.HasIndex(x => x.WarehouseId);
         builder.HasIndex(x => x.VariantId);
 
         builder.HasOne(x => x.OrderItem)
             .WithMany()
             .HasForeignKey(x => x.OrderItemId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(x => x.Warehouse)
+            .WithMany()
+            .HasForeignKey(x => x.WarehouseId)
+            .OnDelete(DeleteBehavior.Restrict)
+            .IsRequired();
     }
 }

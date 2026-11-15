@@ -11,6 +11,7 @@ public interface IOrderService
 
     Task<Result<OrderDetailsDto>> ConfirmAsync(int id, ActorContext actor, CancellationToken cancellationToken = default);
     Task<Result<OrderDetailsDto>> AssignWarehouseAsync(int id, int warehouseId, ActorContext actor, CancellationToken cancellationToken = default);
+    Task<Result<OrderDetailsDto>> AssignWarehousesAsync(int id, AssignOrderWarehousesRequest request, ActorContext actor, CancellationToken cancellationToken = default);
     Task<Result<OrderDetailsDto>> StartProcessingAsync(int id, ActorContext actor, CancellationToken cancellationToken = default);
     Task<Result<OrderDetailsDto>> CompleteAsync(int id, ActorContext actor, CancellationToken cancellationToken = default);
     Task<Result<OrderDetailsDto>> CancelAsync(int id, ActorContext actor, string? comment = null, CancellationToken cancellationToken = default);

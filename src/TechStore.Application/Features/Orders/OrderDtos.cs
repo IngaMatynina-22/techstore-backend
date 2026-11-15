@@ -6,6 +6,7 @@ public class CreateOrderItemRequest
 {
     public int ProductVariantId { get; set; }
     public int Quantity { get; set; }
+    public int? WarehouseId { get; set; }
 }
 
 public class CreateOrderRequest
@@ -46,7 +47,10 @@ public record OrderItemDto(
     int Quantity,
     decimal UnitPrice,
     decimal DiscountAmount,
-    decimal Subtotal);
+    decimal Subtotal,
+    int? WarehouseId,
+    string? WarehouseName,
+    string? WarehouseCode);
 
 public record OrderStatusHistoryDto(
     int Id,
@@ -124,5 +128,17 @@ public class ActorContext
 
 public class AssignOrderWarehouseRequest
 {
+    public int WarehouseId { get; set; }
+}
+
+public class AssignOrderWarehousesRequest
+{
+    public int? WarehouseId { get; set; }
+    public List<OrderItemWarehouseAssignment> Items { get; set; } = [];
+}
+
+public class OrderItemWarehouseAssignment
+{
+    public int OrderItemId { get; set; }
     public int WarehouseId { get; set; }
 }

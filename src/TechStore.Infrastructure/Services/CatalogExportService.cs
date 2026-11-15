@@ -57,6 +57,60 @@ public class CatalogExportService : ICatalogExportService
             CsvUtil.ToUtf8Bytes(sb)));
     }
 
+    public async Task<Result<CsvExportFile>> ExportSuppliersAsync(CancellationToken cancellationToken = default)
+    {
+        var rows = await (
+            from supplier in _db.Suppliers.AsNoTracking()
+            from product in _db.SupplierProducts.AsNoTracking()
+                .Where(item => item.SupplierId == supplier.Id)
+                .DefaultIfEmpty()
+            orderby supplier.Name, supplier.Id, product == null ? string.Empty : product.Variant.Sku
+            select new
+            {
+                supplier.Id,
+                supplier.Name,
+                supplier.ContactPerson,
+                supplier.Email,
+                supplier.Phone,
+                supplier.Address,
+                supplier.TaxNumber,
+                supplier.Notes,
+                supplier.IsActive,
+                ProductSku = product == null ? null : product.Variant.Sku,
+                SupplierSku = product == null ? null : product.SupplierSku,
+                SupplyPrice = product == null ? (decimal?)null : product.SupplyPrice,
+                DeliveryDays = product == null ? (int?)null : product.DeliveryDays,
+                IsPreferred = product != null && product.IsPreferred
+            }).ToListAsync(cancellationToken);
+
+        var sb = new StringBuilder();
+        sb.AppendLine("SupplierId,SupplierName,ContactPerson,Email,Phone,Address,TaxNumber,Notes,IsActive,ProductSku,SupplierSku,SupplyPrice,DeliveryDays,IsPreferred");
+        foreach (var row in rows)
+        {
+            sb.Append(row.Id.ToString(CultureInfo.InvariantCulture)).Append(',');
+            sb.Append(CsvUtil.EscapeAndSanitize(row.Name)).Append(',');
+            sb.Append(CsvUtil.EscapeAndSanitize(row.ContactPerson)).Append(',');
+            sb.Append(CsvUtil.EscapeAndSanitize(row.Email)).Append(',');
+            sb.Append(CsvUtil.EscapeAndSanitize(row.Phone)).Append(',');
+            sb.Append(CsvUtil.EscapeAndSanitize(row.Address)).Append(',');
+            sb.Append(CsvUtil.EscapeAndSanitize(row.TaxNumber)).Append(',');
+            sb.Append(CsvUtil.EscapeAndSanitize(row.Notes)).Append(',');
+            sb.Append(CsvUtil.Escape(CsvUtil.FormatBool(row.IsActive))).Append(',');
+            sb.Append(CsvUtil.EscapeAndSanitize(row.ProductSku)).Append(',');
+            sb.Append(CsvUtil.EscapeAndSanitize(row.SupplierSku)).Append(',');
+            sb.Append(row.SupplyPrice.HasValue
+                ? CsvUtil.Escape(CsvUtil.FormatDecimal(row.SupplyPrice.Value))
+                : string.Empty).Append(',');
+            sb.Append(row.DeliveryDays?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append(',');
+            sb.AppendLine(CsvUtil.Escape(CsvUtil.FormatBool(row.IsPreferred)));
+        }
+
+        return Result.Success(new CsvExportFile(
+            "suppliers.csv",
+            "text/csv",
+            CsvUtil.ToUtf8Bytes(sb)));
+    }
+
     public async Task<Result<CsvExportFile>> ExportInventoryAsync(
         int? warehouseId,
         CancellationToken cancellationToken = default)

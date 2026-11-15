@@ -35,16 +35,24 @@ public class OrderService : IOrderService
             return Result.Failure<OrderDetailsDto>("Order must contain at least one item.");
         }
 
-        if (request.WarehouseId is <= 0)
+        if (request.WarehouseId is <= 0 || request.Items.Any(item => item.WarehouseId is <= 0))
         {
-            return Result.Failure<OrderDetailsDto>("WarehouseId must be a positive value when provided.");
+            return Result.Failure<OrderDetailsDto>("Warehouse IDs must be positive values when provided.");
         }
-        var warehouseId = actor.IsStaff ? request.WarehouseId : null;
 
-        // Aggregate duplicate variant lines before stock checks.
+        // Keep separate lines when the same variant is fulfilled by different warehouses.
         var aggregated = request.Items
-            .GroupBy(i => i.ProductVariantId)
-            .Select(g => new { VariantId = g.Key, Quantity = g.Sum(x => x.Quantity) })
+            .GroupBy(i => new
+            {
+                i.ProductVariantId,
+                WarehouseId = actor.IsStaff ? i.WarehouseId ?? request.WarehouseId : null
+            })
+            .Select(g => new
+            {
+                VariantId = g.Key.ProductVariantId,
+                g.Key.WarehouseId,
+                Quantity = g.Sum(x => x.Quantity)
+            })
             .ToList();
 
         if (aggregated.Any(x => x.VariantId <= 0))
@@ -56,6 +64,19 @@ public class OrderService : IOrderService
         {
             return Result.Failure<OrderDetailsDto>("Item quantity must be greater than zero.");
         }
+
+        if (aggregated.Any(line => line.WarehouseId.HasValue) &&
+            aggregated.Any(line => !line.WarehouseId.HasValue))
+        {
+            return Result.Failure<OrderDetailsDto>("Assign a warehouse to every order item or leave all items unassigned.");
+        }
+
+        var warehouseIds = aggregated
+            .Where(line => line.WarehouseId.HasValue)
+            .Select(line => line.WarehouseId!.Value)
+            .Distinct()
+            .ToList();
+        var orderWarehouseId = warehouseIds.Count == 1 ? warehouseIds[0] : (int?)null;
 
         string? key = null;
         string? hash = null;
@@ -69,12 +90,12 @@ public class OrderService : IOrderService
 
             hash = ComputeHash(new
             {
-                warehouseId,
                 request.ShippingAddressId,
                 request.DeliveryMethod,
                 request.CustomerComment,
                 request.CustomerId,
-                Items = aggregated.OrderBy(x => x.VariantId).Select(x => new { x.VariantId, x.Quantity })
+                Items = aggregated.OrderBy(x => x.VariantId).ThenBy(x => x.WarehouseId)
+                    .Select(x => new { x.VariantId, x.Quantity, x.WarehouseId })
             });
         }
 
@@ -119,13 +140,15 @@ public class OrderService : IOrderService
 
                 var customer = customerResult.Value!;
 
-                var warehouse = warehouseId.HasValue
-                    ? await _db.Warehouses.FirstOrDefaultAsync(w => w.Id == warehouseId.Value, cancellationToken)
-                    : null;
-                if (warehouseId.HasValue && (warehouse is null || !warehouse.IsActive))
+                var activeWarehouses = warehouseIds.Count == 0
+                    ? new Dictionary<int, Warehouse>()
+                    : await _db.Warehouses
+                        .Where(warehouse => warehouseIds.Contains(warehouse.Id) && warehouse.IsActive)
+                        .ToDictionaryAsync(warehouse => warehouse.Id, cancellationToken);
+                if (activeWarehouses.Count != warehouseIds.Count)
                 {
                     await tx.RollbackAsync(cancellationToken);
-                    return Result.Failure<OrderDetailsDto>("Warehouse not found or inactive.", ResultCodes.NotFound);
+                    return Result.Failure<OrderDetailsDto>("One or more warehouses were not found or are inactive.", ResultCodes.NotFound);
                 }
 
                 string? deliveryAddress = null;
@@ -142,7 +165,7 @@ public class OrderService : IOrderService
                     deliveryAddress = FormatAddress(address);
                 }
 
-                var variantIds = aggregated.Select(x => x.VariantId).ToList();
+                var variantIds = aggregated.Select(x => x.VariantId).Distinct().ToList();
                 var variants = await _db.ProductVariants
                     .Include(v => v.Product)
                     .Where(v => variantIds.Contains(v.Id))
@@ -172,9 +195,9 @@ public class OrderService : IOrderService
                 {
                     OrderNumber = orderNumber,
                     CustomerId = customer.Id,
-                    ManagerId = warehouse is null ? null : actor.UserId,
+                    ManagerId = warehouseIds.Count == 0 ? null : actor.UserId,
                     StatusId = newStatus.Id,
-                    WarehouseId = warehouse?.Id,
+                    WarehouseId = orderWarehouseId,
                     ShippingAddressId = request.ShippingAddressId,
                     CustomerName = $"{customer.FirstName} {customer.LastName}".Trim(),
                     CustomerEmail = customer.Email,
@@ -184,7 +207,7 @@ public class OrderService : IOrderService
                     Comment = string.IsNullOrWhiteSpace(request.CustomerComment) ? null : request.CustomerComment.Trim(),
                     DiscountAmount = 0m,
                     DeliveryCost = 0m,
-                    HasActiveReservation = warehouse is not null,
+                    HasActiveReservation = warehouseIds.Count > 0,
                     CreatedAt = now,
                     UpdatedAt = now
                 };
@@ -199,6 +222,7 @@ public class OrderService : IOrderService
                     order.Items.Add(new OrderItem
                     {
                         VariantId = variant.Id,
+                        WarehouseId = line.WarehouseId,
                         ProductName = variant.Product.Name,
                         VariantName = variant.VariantName,
                         Sku = variant.Sku,
@@ -226,23 +250,23 @@ public class OrderService : IOrderService
                 });
                 await _db.SaveChangesAsync(cancellationToken);
 
-                var reservedLines = new List<(int VariantId, int Quantity)>();
+                var reservedLines = new List<(int WarehouseId, int VariantId, int Quantity)>();
                 foreach (var line in aggregated)
                 {
-                    if (warehouse is null)
+                    if (!line.WarehouseId.HasValue)
                     {
-                        break;
+                        continue;
                     }
 
                     var reserve = await _inventory.ReserveStockAsync(
-                        warehouse.Id, line.VariantId, line.Quantity, order.Id, actor.UserId, cancellationToken);
+                        line.WarehouseId.Value, line.VariantId, line.Quantity, order.Id, actor.UserId, cancellationToken);
                     if (reserve.IsFailure)
                     {
                         // Compensate prior lines / draft order (InMemory ignores transactional rollback).
                         foreach (var prev in reservedLines)
                         {
                             await _inventory.ReleaseReservationAsync(
-                                warehouse.Id, prev.VariantId, prev.Quantity, order.Id, actor.UserId, cancellationToken);
+                                prev.WarehouseId, prev.VariantId, prev.Quantity, order.Id, actor.UserId, cancellationToken);
                         }
 
                         var draftHistory = await _db.OrderStatusHistories
@@ -258,7 +282,7 @@ public class OrderService : IOrderService
                             reserve.Code ?? ResultCodes.InsufficientStock);
                     }
 
-                    reservedLines.Add((line.VariantId, line.Quantity));
+                    reservedLines.Add((line.WarehouseId.Value, line.VariantId, line.Quantity));
                 }
 
                 var details = await LoadDetailsAsync(order.Id, cancellationToken)
@@ -492,15 +516,29 @@ public class OrderService : IOrderService
         int warehouseId,
         ActorContext actor,
         CancellationToken cancellationToken = default)
+        => await AssignWarehousesAsync(
+            id,
+            new AssignOrderWarehousesRequest { WarehouseId = warehouseId },
+            actor,
+            cancellationToken);
+
+    public async Task<Result<OrderDetailsDto>> AssignWarehousesAsync(
+        int id,
+        AssignOrderWarehousesRequest request,
+        ActorContext actor,
+        CancellationToken cancellationToken = default)
     {
         if (!actor.IsStaff)
         {
-            return Result.Failure<OrderDetailsDto>("Only staff can assign an order warehouse.", ResultCodes.Forbidden);
+            return Result.Failure<OrderDetailsDto>("Only staff can assign order warehouses.", ResultCodes.Forbidden);
         }
 
-        if (warehouseId <= 0)
+        if (request.Items is null ||
+            request.WarehouseId is <= 0 ||
+            (request.WarehouseId.HasValue && request.Items.Count > 0) ||
+            (!request.WarehouseId.HasValue && request.Items.Count == 0))
         {
-            return Result.Failure<OrderDetailsDto>("WarehouseId must be a positive value.");
+            return Result.Failure<OrderDetailsDto>("Provide either one WarehouseId or a warehouse for every order item.");
         }
 
         var strategy = _db.Database.CreateExecutionStrategy();
@@ -528,25 +566,47 @@ public class OrderService : IOrderService
                         ResultCodes.InvalidTransition);
                 }
 
-                if (order.WarehouseId.HasValue)
+                if (request.Items.GroupBy(item => item.OrderItemId).Any(group => group.Count() > 1))
                 {
                     await tx.RollbackAsync(cancellationToken);
-                    return order.WarehouseId.Value == warehouseId
+                    return Result.Failure<OrderDetailsDto>("Each order item may only be assigned once.");
+                }
+
+                var assignments = request.WarehouseId.HasValue
+                    ? order.Items.ToDictionary(item => item.Id, _ => request.WarehouseId.Value)
+                    : request.Items.ToDictionary(item => item.OrderItemId, item => item.WarehouseId);
+                if (assignments.Count != order.Items.Count ||
+                    order.Items.Any(item => !assignments.ContainsKey(item.Id)) ||
+                    assignments.Values.Any(value => value <= 0))
+                {
+                    await tx.RollbackAsync(cancellationToken);
+                    return Result.Failure<OrderDetailsDto>("Assign exactly one positive warehouse to every order item.");
+                }
+
+                if (order.Items.Any(item => item.WarehouseId.HasValue) || order.HasActiveReservation)
+                {
+                    await tx.RollbackAsync(cancellationToken);
+                    var alreadyAssigned = order.Items.All(item =>
+                        item.WarehouseId.HasValue &&
+                        item.WarehouseId.Value == assignments[item.Id]);
+                    return alreadyAssigned
                         ? Result.Success((await LoadDetailsAsync(order.Id, cancellationToken))!)
                         : Result.Conflict<OrderDetailsDto>(
-                            "A warehouse is already assigned to this order.",
+                            "Warehouses are already assigned to this order.",
                             ResultCodes.InvalidTransition);
                 }
 
-                var warehouse = await _db.Warehouses
-                    .FirstOrDefaultAsync(w => w.Id == warehouseId && w.IsActive, cancellationToken);
-                if (warehouse is null)
+                var warehouseIds = assignments.Values.Distinct().ToList();
+                var activeWarehouses = await _db.Warehouses
+                    .Where(warehouse => warehouseIds.Contains(warehouse.Id) && warehouse.IsActive)
+                    .ToDictionaryAsync(warehouse => warehouse.Id, cancellationToken);
+                if (activeWarehouses.Count != warehouseIds.Count)
                 {
                     await tx.RollbackAsync(cancellationToken);
-                    return Result.Failure<OrderDetailsDto>("Warehouse not found or inactive.", ResultCodes.NotFound);
+                    return Result.Failure<OrderDetailsDto>("One or more warehouses were not found or are inactive.", ResultCodes.NotFound);
                 }
 
-                var reservedLines = new List<(int VariantId, int Quantity)>();
+                var reservedLines = new List<(int WarehouseId, int VariantId, int Quantity)>();
                 foreach (var item in order.Items)
                 {
                     if (!item.VariantId.HasValue)
@@ -555,8 +615,9 @@ public class OrderService : IOrderService
                         return Result.Failure<OrderDetailsDto>("Order item is missing variant reference.");
                     }
 
+                    var itemWarehouseId = assignments[item.Id];
                     var reserve = await _inventory.ReserveStockAsync(
-                        warehouse.Id,
+                        itemWarehouseId,
                         item.VariantId.Value,
                         item.Quantity,
                         order.Id,
@@ -567,7 +628,7 @@ public class OrderService : IOrderService
                         foreach (var previous in reservedLines)
                         {
                             await _inventory.ReleaseReservationAsync(
-                                warehouse.Id,
+                                previous.WarehouseId,
                                 previous.VariantId,
                                 previous.Quantity,
                                 order.Id,
@@ -581,10 +642,19 @@ public class OrderService : IOrderService
                             reserve.Code ?? ResultCodes.InsufficientStock);
                     }
 
-                    reservedLines.Add((item.VariantId.Value, item.Quantity));
+                    reservedLines.Add((itemWarehouseId, item.VariantId.Value, item.Quantity));
                 }
 
-                order.WarehouseId = warehouse.Id;
+                foreach (var item in order.Items)
+                {
+                    item.WarehouseId = assignments[item.Id];
+                }
+
+                var assignedWarehouseIds = order.Items
+                    .Select(item => item.WarehouseId!.Value)
+                    .Distinct()
+                    .ToList();
+                order.WarehouseId = assignedWarehouseIds.Count == 1 ? assignedWarehouseIds[0] : null;
                 order.ManagerId = actor.UserId;
                 order.HasActiveReservation = true;
                 order.UpdatedAt = DateTime.UtcNow;
@@ -593,7 +663,7 @@ public class OrderService : IOrderService
                     "Order",
                     order.Id.ToString(),
                     AuditAction.Update,
-                    $"Assigned warehouse {warehouse.Code}",
+                    $"Assigned {order.Items.Count} order items across {assignedWarehouseIds.Count} warehouse(s)",
                     cancellationToken);
                 await _db.SaveChangesAsync(cancellationToken);
                 await tx.CommitAsync(cancellationToken);
@@ -663,16 +733,17 @@ public class OrderService : IOrderService
                         return Result.Failure<OrderDetailsDto>("Order item is missing variant reference.");
                     }
 
-                    if (!order.WarehouseId.HasValue)
+                    var itemWarehouseId = item.WarehouseId ?? order.WarehouseId;
+                    if (!itemWarehouseId.HasValue)
                     {
                         await tx.RollbackAsync(cancellationToken);
                         return Result.Conflict<OrderDetailsDto>(
-                            "Order has no assigned warehouse.",
+                            "An order item has no assigned warehouse.",
                             ResultCodes.InvalidTransition);
                     }
 
                     var fulfill = await _inventory.FulfillReservedStockAsync(
-                        order.WarehouseId.Value, item.VariantId.Value, item.Quantity, order.Id, actor.UserId, cancellationToken);
+                        itemWarehouseId.Value, item.VariantId.Value, item.Quantity, order.Id, actor.UserId, cancellationToken);
                     if (fulfill.IsFailure)
                     {
                         await tx.RollbackAsync(cancellationToken);
@@ -772,16 +843,17 @@ public class OrderService : IOrderService
                             continue;
                         }
 
-                        if (!order.WarehouseId.HasValue)
+                        var itemWarehouseId = item.WarehouseId ?? order.WarehouseId;
+                        if (!itemWarehouseId.HasValue)
                         {
                             await tx.RollbackAsync(cancellationToken);
                             return Result.Conflict<OrderDetailsDto>(
-                                "Order reservation has no assigned warehouse.",
+                                "An order reservation has no assigned warehouse.",
                                 ResultCodes.InvalidTransition);
                         }
 
                         var release = await _inventory.ReleaseReservationAsync(
-                            order.WarehouseId.Value, item.VariantId.Value, item.Quantity, order.Id, actor.UserId, cancellationToken);
+                            itemWarehouseId.Value, item.VariantId.Value, item.Quantity, order.Id, actor.UserId, cancellationToken);
                         if (release.IsFailure)
                         {
                             await tx.RollbackAsync(cancellationToken);
@@ -963,12 +1035,11 @@ public class OrderService : IOrderService
                         ResultCodes.InvalidTransition);
                 }
 
-                if (toCode == OrderStatusCodes.Confirmed &&
-                    (!order.WarehouseId.HasValue || !order.HasActiveReservation))
+                if (toCode == OrderStatusCodes.Confirmed && !order.HasActiveReservation)
                 {
                     await tx.RollbackAsync(cancellationToken);
                     return Result.Conflict<OrderDetailsDto>(
-                        "Assign a warehouse with sufficient stock before confirming this order.",
+                        "Assign warehouses with sufficient stock to every order item before confirming.",
                         ResultCodes.InvalidTransition);
                 }
 
@@ -1100,7 +1171,10 @@ public class OrderService : IOrderService
                     i.Quantity,
                     i.UnitPrice,
                     i.DiscountAmount,
-                    i.Subtotal)).ToList()))
+                    i.Subtotal,
+                    i.WarehouseId,
+                    i.Warehouse != null ? i.Warehouse.Name : null,
+                    i.Warehouse != null ? i.Warehouse.Code : null)).ToList()))
             .FirstOrDefaultAsync(cancellationToken);
     }
 

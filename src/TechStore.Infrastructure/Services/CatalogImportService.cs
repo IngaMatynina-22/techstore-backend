@@ -72,7 +72,15 @@ public class CatalogImportService : ICatalogImportService
             return Result.Failure<ImportBatchDto>("CSV file must be at most 2MB.");
         }
 
-        var rawRows = await CsvUtil.ReadRowsAsync(fileStream, cancellationToken);
+        List<string[]> rawRows;
+        try
+        {
+            rawRows = await CsvUtil.ReadRowsAsync(fileStream, cancellationToken);
+        }
+        catch (InvalidDataException exception)
+        {
+            return Result.Failure<ImportBatchDto>(exception.Message);
+        }
         if (rawRows.Count == 0)
         {
             return Result.Failure<ImportBatchDto>("CSV file is empty.");
@@ -274,7 +282,15 @@ public class CatalogImportService : ICatalogImportService
             return Result.Failure<ImportBatchDto>("CSV file must be at most 2MB.");
         }
 
-        var rows = await CsvUtil.ReadRowsAsync(fileStream, cancellationToken);
+        List<string[]> rows;
+        try
+        {
+            rows = await CsvUtil.ReadRowsAsync(fileStream, cancellationToken);
+        }
+        catch (InvalidDataException exception)
+        {
+            return Result.Failure<ImportBatchDto>(exception.Message);
+        }
         if (rows.Count == 0)
         {
             return Result.Failure<ImportBatchDto>("CSV file is empty.");

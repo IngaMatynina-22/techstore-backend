@@ -27,11 +27,18 @@ public class OrderItemConfiguration : IEntityTypeConfiguration<OrderItem>
 
         builder.HasIndex(x => x.OrderId);
         builder.HasIndex(x => x.VariantId);
+        builder.HasIndex(x => x.WarehouseId);
         builder.HasIndex(x => x.Sku);
 
         builder.HasOne(x => x.Variant)
             .WithMany(x => x.OrderItems)
             .HasForeignKey(x => x.VariantId)
             .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasOne(x => x.Warehouse)
+            .WithMany()
+            .HasForeignKey(x => x.WarehouseId)
+            .OnDelete(DeleteBehavior.Restrict)
+            .IsRequired(false);
     }
 }
